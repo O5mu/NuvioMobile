@@ -14,8 +14,13 @@ concurrency:
 
 jobs:
   build:
-    name: Build unsigned Release IPA
-    runs-on: macos-26
+    name: Build unsigned Release IPA (${{ matrix.runner }})
+    # Apple Silicon runners are often out of capacity, so the Intel runner builds too.
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-26, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 180
     env:
       GRADLE_OPTS: -Dfile.encoding=UTF-8
@@ -30,6 +35,7 @@ jobs:
 
       - name: Select newest Xcode
         run: |
+          ls -d /Applications/Xcode_*.app
           xcode="$(ls -d /Applications/Xcode_*.app | grep -v -i beta | sort -V | tail -n 1)"
           sudo xcode-select -s "${xcode}/Contents/Developer"
           xcodebuild -version
@@ -61,7 +67,7 @@ jobs:
       - name: Upload IPA
         uses: actions/upload-artifact@v7
         with:
-          name: nuvio-custom-ipa
+          name: nuvio-custom-ipa-${{ matrix.runner }}
           path: build/ios-ipa/*.ipa
           if-no-files-found: error
           retention-days: 30
