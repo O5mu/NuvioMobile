@@ -58,6 +58,10 @@ jobs:
           restore-keys: |
             konan-${{ runner.os }}-${{ runner.arch }}-
 
+      # Upstream reads private keys from local.properties; the fork has none, but the file must exist.
+      - name: Create empty local.properties
+        run: touch local.properties
+
       - name: Prepare iOS dependencies
         run: ./scripts/prepare-ios-dependencies.sh
 
