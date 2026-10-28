@@ -344,6 +344,17 @@ object PlayerSettingsRepository {
                 ?: SubtitleStyleState.DEFAULT.useForcedSubtitles,
             showOnlyPreferredLanguages = PlayerSettingsStorage.loadSubtitleShowOnlyPreferredLanguages()
                 ?: SubtitleStyleState.DEFAULT.showOnlyPreferredLanguages,
+            fontFamily = PlayerSettingsStorage.loadSubtitleFontFamily()
+                ?.takeIf(String::isNotBlank)
+                ?: SubtitleStyleState.DEFAULT.fontFamily,
+            shadowEnabled = PlayerSettingsStorage.loadSubtitleShadowEnabled()
+                ?: SubtitleStyleState.DEFAULT.shadowEnabled,
+            shadowColor = subtitleColorFromStorage(PlayerSettingsStorage.loadSubtitleShadowColor())
+                ?: SubtitleStyleState.DEFAULT.shadowColor,
+            shadowOffset = PlayerSettingsStorage.loadSubtitleShadowOffset()
+                ?: SubtitleStyleState.DEFAULT.shadowOffset,
+            shadowSoftness = PlayerSettingsStorage.loadSubtitleShadowSoftness()
+                ?: SubtitleStyleState.DEFAULT.shadowSoftness,
         )
         streamReuseLastLinkEnabled = PlayerSettingsStorage.loadStreamReuseLastLinkEnabled() ?: false
         streamReuseLastLinkCacheHours = PlayerSettingsStorage.loadStreamReuseLastLinkCacheHours() ?: 24
@@ -628,6 +639,11 @@ object PlayerSettingsRepository {
         PlayerSettingsStorage.saveSubtitleStripSdh(normalized.stripSdh)
         PlayerSettingsStorage.saveSubtitleUseForcedSubtitles(normalized.useForcedSubtitles)
         PlayerSettingsStorage.saveSubtitleShowOnlyPreferredLanguages(normalized.showOnlyPreferredLanguages)
+        PlayerSettingsStorage.saveSubtitleFontFamily(normalized.fontFamily)
+        PlayerSettingsStorage.saveSubtitleShadowEnabled(normalized.shadowEnabled)
+        PlayerSettingsStorage.saveSubtitleShadowColor(normalized.shadowColor.toStorageHexString())
+        PlayerSettingsStorage.saveSubtitleShadowOffset(normalized.shadowOffset)
+        PlayerSettingsStorage.saveSubtitleShadowSoftness(normalized.shadowSoftness)
     }
 
     fun setStreamReuseLastLinkEnabled(enabled: Boolean) {

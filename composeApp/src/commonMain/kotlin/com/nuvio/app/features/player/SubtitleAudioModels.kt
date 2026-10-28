@@ -54,11 +54,48 @@ data class SubtitleStyleState(
     val stripSdh: Boolean = false,
     val useForcedSubtitles: Boolean = false,
     val showOnlyPreferredLanguages: Boolean = false,
+    val fontFamily: String = SubtitleFontOption.DEFAULT_ID,
+    val shadowEnabled: Boolean = false,
+    val shadowColor: Color = Color.Black.copy(alpha = 0.8f),
+    val shadowOffset: Int = 2,
+    val shadowSoftness: Int = 0,
 ) {
     companion object {
         val DEFAULT = SubtitleStyleState()
     }
 }
+
+/**
+ * Subtitle fonts offered on iOS. [id] is what the player receives: "default" keeps the
+ * bundled Noto font, "system" resolves the iOS system font (SF Pro / SF Arabic) at runtime,
+ * and anything else is an installed iOS font family looked up by name.
+ */
+data class SubtitleFontOption(
+    val id: String,
+    val label: String,
+) {
+    companion object {
+        const val DEFAULT_ID = "default"
+        const val SYSTEM_ID = "system"
+
+        val all = listOf(
+            SubtitleFontOption(DEFAULT_ID, "Noto Sans"),
+            SubtitleFontOption(SYSTEM_ID, "iOS System"),
+            SubtitleFontOption("Geeza Pro", "Geeza Pro"),
+            SubtitleFontOption("Damascus", "Damascus"),
+            SubtitleFontOption("Helvetica Neue", "Helvetica Neue"),
+            SubtitleFontOption("Avenir Next", "Avenir Next"),
+        )
+    }
+}
+
+val SubtitleShadowColorSwatches = listOf(
+    Color.Black,
+    Color(0xFF1F2937),
+    Color.White,
+    Color(0xFF00E5FF),
+    Color(0xFFFFD700),
+)
 
 data class SubtitleSyncCue(
     val startTimeMs: Long,

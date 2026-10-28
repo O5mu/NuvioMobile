@@ -47,6 +47,11 @@ actual object PlayerSettingsStorage {
     private const val subtitleStripSdhKey = "subtitle_strip_sdh"
     private const val subtitleUseForcedSubtitlesKey = "subtitle_use_forced_subtitles"
     private const val subtitleShowOnlyPreferredLanguagesKey = "subtitle_show_only_preferred_languages"
+    private const val subtitleFontFamilyKey = "subtitle_font_family"
+    private const val subtitleShadowEnabledKey = "subtitle_shadow_enabled"
+    private const val subtitleShadowColorKey = "subtitle_shadow_color"
+    private const val subtitleShadowOffsetKey = "subtitle_shadow_offset"
+    private const val subtitleShadowSoftnessKey = "subtitle_shadow_softness"
     private const val streamReuseLastLinkEnabledKey = "stream_reuse_last_link_enabled"
     private const val streamReuseLastLinkCacheHoursKey = "stream_reuse_last_link_cache_hours"
     private const val androidPlaybackEngineKey = "android_playback_engine"
@@ -136,6 +141,11 @@ actual object PlayerSettingsStorage {
         subtitleStripSdhKey,
         subtitleUseForcedSubtitlesKey,
         subtitleShowOnlyPreferredLanguagesKey,
+        subtitleFontFamilyKey,
+        subtitleShadowEnabledKey,
+        subtitleShadowColorKey,
+        subtitleShadowOffsetKey,
+        subtitleShadowSoftnessKey,
         streamReuseLastLinkEnabledKey,
         streamReuseLastLinkCacheHoursKey,
         androidPlaybackEngineKey,
@@ -490,6 +500,38 @@ actual object PlayerSettingsStorage {
 
     actual fun saveSubtitleOutlineWidth(width: Int) {
         saveInt(subtitleOutlineWidthKey, width)
+    }
+
+    actual fun loadSubtitleFontFamily(): String? =
+        NSUserDefaults.standardUserDefaults.stringForKey(ProfileScopedKey.of(subtitleFontFamilyKey))
+
+    actual fun saveSubtitleFontFamily(fontFamily: String) {
+        NSUserDefaults.standardUserDefaults.setObject(fontFamily, forKey = ProfileScopedKey.of(subtitleFontFamilyKey))
+    }
+
+    actual fun loadSubtitleShadowEnabled(): Boolean? = loadBoolean(subtitleShadowEnabledKey)
+
+    actual fun saveSubtitleShadowEnabled(enabled: Boolean) {
+        saveBoolean(subtitleShadowEnabledKey, enabled)
+    }
+
+    actual fun loadSubtitleShadowColor(): String? =
+        NSUserDefaults.standardUserDefaults.stringForKey(ProfileScopedKey.of(subtitleShadowColorKey))
+
+    actual fun saveSubtitleShadowColor(colorHex: String) {
+        NSUserDefaults.standardUserDefaults.setObject(colorHex, forKey = ProfileScopedKey.of(subtitleShadowColorKey))
+    }
+
+    actual fun loadSubtitleShadowOffset(): Int? = loadInt(subtitleShadowOffsetKey)
+
+    actual fun saveSubtitleShadowOffset(offset: Int) {
+        saveInt(subtitleShadowOffsetKey, offset)
+    }
+
+    actual fun loadSubtitleShadowSoftness(): Int? = loadInt(subtitleShadowSoftnessKey)
+
+    actual fun saveSubtitleShadowSoftness(softness: Int) {
+        saveInt(subtitleShadowSoftnessKey, softness)
     }
 
     actual fun loadSubtitleBold(): Boolean? = loadBoolean(subtitleBoldKey)
@@ -1138,6 +1180,11 @@ actual object PlayerSettingsStorage {
         loadSubtitleStripSdh()?.let { put(subtitleStripSdhKey, encodeSyncBoolean(it)) }
         loadSubtitleUseForcedSubtitles()?.let { put(subtitleUseForcedSubtitlesKey, encodeSyncBoolean(it)) }
         loadSubtitleShowOnlyPreferredLanguages()?.let { put(subtitleShowOnlyPreferredLanguagesKey, encodeSyncBoolean(it)) }
+        loadSubtitleFontFamily()?.let { put(subtitleFontFamilyKey, encodeSyncString(it)) }
+        loadSubtitleShadowEnabled()?.let { put(subtitleShadowEnabledKey, encodeSyncBoolean(it)) }
+        loadSubtitleShadowColor()?.let { put(subtitleShadowColorKey, encodeSyncString(it)) }
+        loadSubtitleShadowOffset()?.let { put(subtitleShadowOffsetKey, encodeSyncInt(it)) }
+        loadSubtitleShadowSoftness()?.let { put(subtitleShadowSoftnessKey, encodeSyncInt(it)) }
         loadStreamReuseLastLinkEnabled()?.let { put(streamReuseLastLinkEnabledKey, encodeSyncBoolean(it)) }
         loadStreamReuseLastLinkCacheHours()?.let { put(streamReuseLastLinkCacheHoursKey, encodeSyncInt(it)) }
         loadAndroidPlaybackEngine()?.let { put(androidPlaybackEngineKey, encodeSyncString(it)) }
@@ -1223,6 +1270,11 @@ actual object PlayerSettingsStorage {
         payload.decodeSyncBoolean(subtitleStripSdhKey)?.let(::saveSubtitleStripSdh)
         payload.decodeSyncBoolean(subtitleUseForcedSubtitlesKey)?.let(::saveSubtitleUseForcedSubtitles)
         payload.decodeSyncBoolean(subtitleShowOnlyPreferredLanguagesKey)?.let(::saveSubtitleShowOnlyPreferredLanguages)
+        payload.decodeSyncString(subtitleFontFamilyKey)?.let(::saveSubtitleFontFamily)
+        payload.decodeSyncBoolean(subtitleShadowEnabledKey)?.let(::saveSubtitleShadowEnabled)
+        payload.decodeSyncString(subtitleShadowColorKey)?.let(::saveSubtitleShadowColor)
+        payload.decodeSyncInt(subtitleShadowOffsetKey)?.let(::saveSubtitleShadowOffset)
+        payload.decodeSyncInt(subtitleShadowSoftnessKey)?.let(::saveSubtitleShadowSoftness)
         payload.decodeSyncBoolean(streamReuseLastLinkEnabledKey)?.let(::saveStreamReuseLastLinkEnabled)
         payload.decodeSyncInt(streamReuseLastLinkCacheHoursKey)?.let(::saveStreamReuseLastLinkCacheHours)
         payload.decodeSyncString(androidPlaybackEngineKey)?.let(::saveAndroidPlaybackEngine)

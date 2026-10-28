@@ -445,6 +445,13 @@
     <string name="compose_player_none">None</string>
     <string name="compose_player_outline">Outline</string>
     <string name="compose_player_outline_color">Outline Color</string>
+    <string name="compose_player_subtitle_font">Font</string>
+    <string name="compose_player_shadow">Shadow</string>
+    <string name="compose_player_shadow_color">Shadow Color</string>
+    <string name="compose_player_shadow_opacity">Shadow Opacity</string>
+    <string name="compose_player_shadow_distance">Shadow Distance</string>
+    <string name="compose_player_shadow_softness">Softness</string>
+    <string name="compose_player_shadow_background_hint">Shadow is hidden while a subtitle background color is on.</string>
     <string name="compose_player_panel_episodes">Episodes</string>
     <string name="compose_player_panel_sources">Sources</string>
     <string name="compose_player_chapters">Chapters</string>

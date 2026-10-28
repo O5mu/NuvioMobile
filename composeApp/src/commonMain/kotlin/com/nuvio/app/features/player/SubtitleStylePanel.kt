@@ -33,6 +33,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.nuvio
+import com.nuvio.app.isIos
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.compose_action_off
 import nuvio.composeapp.generated.resources.compose_action_on
@@ -51,8 +52,15 @@ import nuvio.composeapp.generated.resources.compose_player_reload
 import nuvio.composeapp.generated.resources.compose_player_reset
 import nuvio.composeapp.generated.resources.compose_player_reset_defaults
 import nuvio.composeapp.generated.resources.compose_player_select_addon_subtitle_first
+import nuvio.composeapp.generated.resources.compose_player_shadow
+import nuvio.composeapp.generated.resources.compose_player_shadow_background_hint
+import nuvio.composeapp.generated.resources.compose_player_shadow_color
+import nuvio.composeapp.generated.resources.compose_player_shadow_distance
+import nuvio.composeapp.generated.resources.compose_player_shadow_opacity
+import nuvio.composeapp.generated.resources.compose_player_shadow_softness
 import nuvio.composeapp.generated.resources.compose_player_style
 import nuvio.composeapp.generated.resources.compose_player_subtitle_delay
+import nuvio.composeapp.generated.resources.compose_player_subtitle_font
 import nuvio.composeapp.generated.resources.compose_player_text_opacity
 import org.jetbrains.compose.resources.stringResource
 import kotlin.math.abs
@@ -126,6 +134,26 @@ fun SubtitleStylePanel(
             )
         }
 
+        // Font and shadow are rendered by mpv, which only the iOS player uses.
+        if (isIos) {
+            SubtitleStyleSection(title = stringResource(Res.string.compose_player_subtitle_font)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    SubtitleFontOption.all.forEach { option ->
+                        SubtitleOptionChip(
+                            label = option.label,
+                            selected = option.id == style.fontFamily,
+                            onClick = { onStyleChanged(style.copy(fontFamily = option.id)) },
+                        )
+                    }
+                }
+            }
+        }
+
         SubtitleStyleSection(title = stringResource(Res.string.compose_player_color)) {
             SubtitleColorPicker(
                 colors = SubtitleColorSwatches,
@@ -171,6 +199,10 @@ fun SubtitleStylePanel(
             )
         }
 
+        if (isIos) {
+            SubtitleShadowSection(style = style, onStyleChanged = onStyleChanged)
+        }
+
         SubtitleStyleSection(title = stringResource(Res.string.compose_player_bottom_offset)) {
             SubtitleStyleStepper(
                 value = style.bottomOffset.toString(),
@@ -194,6 +226,93 @@ fun SubtitleStylePanel(
         SubtitleResetAction(
             label = stringResource(Res.string.compose_player_reset_defaults),
             onClick = { onStyleChanged(SubtitleStyleState.DEFAULT) },
+        )
+    }
+}
+
+@Composable
+private fun SubtitleShadowSection(
+    style: SubtitleStyleState,
+    onStyleChanged: (SubtitleStyleState) -> Unit,
+) {
+    val shadowOn = style.shadowEnabled
+    val opacity = (style.shadowColor.alpha * 100f).roundToInt().coerceIn(0, 100)
+
+    SubtitleStyleSection(title = stringResource(Res.string.compose_player_shadow)) {
+        SubtitleToggleChip(
+            enabled = shadowOn,
+            onClick = { onStyleChanged(style.copy(shadowEnabled = !shadowOn)) },
+        )
+        Column(
+            modifier = Modifier.alpha(if (shadowOn) 1f else 0.42f),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            SubtitleHelperText(stringResource(Res.string.compose_player_shadow_color))
+            SubtitleColorPicker(
+                colors = SubtitleShadowColorSwatches,
+                selectedColor = style.shadowColor,
+                onColorSelected = { color ->
+                    onStyleChanged(
+                        style.copy(shadowEnabled = true, shadowColor = color.copy(alpha = style.shadowColor.alpha)),
+                    )
+                },
+            )
+            SubtitleHelperText(stringResource(Res.string.compose_player_shadow_opacity))
+            SubtitleStyleStepper(
+                value = "$opacity%",
+                onDecrease = {
+                    val alpha = (opacity - 10).coerceAtLeast(10) / 100f
+                    onStyleChanged(style.copy(shadowEnabled = true, shadowColor = style.shadowColor.copy(alpha = alpha)))
+                },
+                onIncrease = {
+                    val alpha = (opacity + 10).coerceAtMost(100) / 100f
+                    onStyleChanged(style.copy(shadowEnabled = true, shadowColor = style.shadowColor.copy(alpha = alpha)))
+                },
+            )
+            SubtitleHelperText(stringResource(Res.string.compose_player_shadow_distance))
+            SubtitleStyleStepper(
+                value = style.shadowOffset.toString(),
+                onDecrease = {
+                    onStyleChanged(style.copy(shadowEnabled = true, shadowOffset = (style.shadowOffset - 1).coerceAtLeast(1)))
+                },
+                onIncrease = {
+                    onStyleChanged(style.copy(shadowEnabled = true, shadowOffset = (style.shadowOffset + 1).coerceAtMost(8)))
+                },
+            )
+            SubtitleHelperText(stringResource(Res.string.compose_player_shadow_softness))
+            SubtitleStyleStepper(
+                value = style.shadowSoftness.toString(),
+                onDecrease = {
+                    onStyleChanged(style.copy(shadowEnabled = true, shadowSoftness = (style.shadowSoftness - 1).coerceAtLeast(0)))
+                },
+                onIncrease = {
+                    onStyleChanged(style.copy(shadowEnabled = true, shadowSoftness = (style.shadowSoftness + 1).coerceAtMost(5)))
+                },
+            )
+            SubtitleHelperText(stringResource(Res.string.compose_player_shadow_background_hint))
+        }
+    }
+}
+
+@Composable
+private fun SubtitleOptionChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (selected) tokens.colors.accent else Color.White.copy(alpha = 0.08f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+    ) {
+        Text(
+            text = label,
+            color = if (selected) tokens.colors.onAccent else Color.White,
+            style = MaterialTheme.typography.labelLarge,
         )
     }
 }

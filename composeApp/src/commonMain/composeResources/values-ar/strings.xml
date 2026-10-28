@@ -378,6 +378,13 @@
     <string name="compose_player_none">لا شيء</string>
     <string name="compose_player_outline">حدود النص</string>
     <string name="compose_player_outline_color">لون الحدود</string>
+    <string name="compose_player_subtitle_font">الخط</string>
+    <string name="compose_player_shadow">الظل</string>
+    <string name="compose_player_shadow_color">لون الظل</string>
+    <string name="compose_player_shadow_opacity">شفافية الظل</string>
+    <string name="compose_player_shadow_distance">مسافة الظل</string>
+    <string name="compose_player_shadow_softness">النعومة</string>
+    <string name="compose_player_shadow_background_hint">يختفي الظل إذا كانت خلفية الترجمة مفعّلة.</string>
     <string name="compose_player_panel_episodes">الحلقات</string>
     <string name="compose_player_panel_sources">المصادر</string>
     <string name="compose_player_panel_streams">مصادر البث</string>

@@ -695,6 +695,29 @@ fun MetaDetailsScreen(
                 val currentEpisodeListSeason = selectedEpisodeListSeason
                     ?.takeIf { it in episodeListGroupedEpisodes }
                     ?: defaultEpisodeListSeason
+                var selectedEpisodeListRange by rememberSaveable(meta.id) {
+                    mutableStateOf<Int?>(null)
+                }
+                val currentEpisodeListRange = remember(
+                    episodeListGroupedEpisodes,
+                    currentEpisodeListSeason,
+                    selectedEpisodeListRange,
+                    seriesAction?.seasonNumber,
+                    seriesAction?.episodeNumber,
+                ) {
+                    val seasonEpisodes = currentEpisodeListSeason
+                        ?.let { episodeListGroupedEpisodes[it] }
+                        .orEmpty()
+                    val ranges = episodeRangesFor(seasonEpisodes)
+                    selectedEpisodeListRange
+                        ?.takeIf { it in ranges.indices }
+                        ?: episodeRangeIndexFor(
+                            ranges = ranges,
+                            episodes = seasonEpisodes,
+                            episodeNumber = seriesAction?.episodeNumber
+                                ?.takeIf { currentEpisodeListSeason == seriesAction?.seasonNumber },
+                        )
+                }
                 val hasProductionSection = remember(meta) {
                     meta.productionCompanies.isNotEmpty() || meta.networks.isNotEmpty()
                 }
@@ -1259,7 +1282,12 @@ fun MetaDetailsScreen(
                                     episodeListGroupedEpisodes = episodeListGroupedEpisodes,
                                     episodeListSeasons = episodeListSeasons,
                                     episodeListCurrentSeason = currentEpisodeListSeason,
-                                    onEpisodeListSeasonSelect = { selectedEpisodeListSeason = it },
+                                    onEpisodeListSeasonSelect = {
+                                        selectedEpisodeListSeason = it
+                                        selectedEpisodeListRange = null
+                                    },
+                                    episodeListRangeIndex = currentEpisodeListRange,
+                                    onEpisodeListRangeSelect = { selectedEpisodeListRange = it },
                                     onRetryComments = {
                                         detailsScope.launch {
                                             isCommentsLoading = true
@@ -1950,6 +1978,8 @@ private fun LazyListScope.configuredMetaSectionItems(
     episodeListSeasons: List<Int>,
     episodeListCurrentSeason: Int?,
     onEpisodeListSeasonSelect: (Int) -> Unit,
+    episodeListRangeIndex: Int,
+    onEpisodeListRangeSelect: (Int) -> Unit,
     onRetryComments: () -> Unit,
     onLoadMoreComments: () -> Unit,
     onCommentClick: (TraktCommentReview) -> Unit,
@@ -2054,8 +2084,10 @@ private fun LazyListScope.configuredMetaSectionItems(
 
     fun addLazyEpisodeListItems(key: String) {
         val currentSeason = episodeListCurrentSeason ?: return
-        val episodes = episodeListGroupedEpisodes[currentSeason].orEmpty()
-        if (episodes.isEmpty()) return
+        val seasonEpisodes = episodeListGroupedEpisodes[currentSeason].orEmpty()
+        if (seasonEpisodes.isEmpty()) return
+        val episodeRanges = episodeRangesFor(seasonEpisodes)
+        val episodes = seasonEpisodes.inEpisodeRange(episodeRanges, episodeListRangeIndex)
 
         item(
             key = "$key-header",
@@ -2074,6 +2106,9 @@ private fun LazyListScope.configuredMetaSectionItems(
                     horizontalScrollPadding = contentHorizontalPadding,
                     onSeasonSelect = onEpisodeListSeasonSelect,
                     onSeasonLongPress = onSeasonLongPress,
+                    episodeRanges = episodeRanges,
+                    currentEpisodeRangeIndex = episodeListRangeIndex,
+                    onEpisodeRangeSelect = onEpisodeListRangeSelect,
                 )
             }
         }

@@ -45,6 +45,9 @@ import com.nuvio.app.core.ui.NuvioAnimatedWatchedBadge
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.details.MetaVideo
+import com.nuvio.app.features.details.episodeRangeIndexFor
+import com.nuvio.app.features.details.episodeRangesFor
+import com.nuvio.app.features.details.inEpisodeRange
 import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.StreamsUiState
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
@@ -175,8 +178,21 @@ private fun EpisodesListPanelContent(
             },
         )
     }
-    val seasonEpisodes = remember(groupedEpisodes, selectedSeason) {
+    val allSeasonEpisodes = remember(groupedEpisodes, selectedSeason) {
         (groupedEpisodes[selectedSeason] ?: emptyList()).sortedBy { it.episode ?: 0 }
+    }
+    val episodeRanges = remember(allSeasonEpisodes) { episodeRangesFor(allSeasonEpisodes) }
+    var selectedRange by remember(allSeasonEpisodes, currentEpisode) {
+        mutableIntStateOf(
+            episodeRangeIndexFor(
+                ranges = episodeRanges,
+                episodes = allSeasonEpisodes,
+                episodeNumber = currentEpisode.takeIf { selectedSeason == currentSeason },
+            ),
+        )
+    }
+    val seasonEpisodes = remember(allSeasonEpisodes, episodeRanges, selectedRange) {
+        allSeasonEpisodes.inEpisodeRange(episodeRanges, selectedRange)
     }
     val seasonListState = rememberLazyListState()
     val episodeListState = rememberLazyListState()
@@ -229,6 +245,23 @@ private fun EpisodesListPanelContent(
                             selectedSeason = season
                             onSeasonSelected(season)
                         },
+                    )
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+
+        if (episodeRanges.isNotEmpty()) {
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+            ) {
+                itemsIndexed(episodeRanges, key = { _, range -> range.fromIndex }) { index, range ->
+                    EpisodeSeasonChip(
+                        label = range.label,
+                        isSelected = selectedRange == index,
+                        onClick = { selectedRange = index },
                     )
                 }
             }

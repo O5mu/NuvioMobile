@@ -72,6 +72,7 @@ import com.nuvio.app.features.player.IosTargetPrimaries
 import com.nuvio.app.features.player.IosTargetTransfer
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.player.STREAM_AUTO_PLAY_TIMEOUT_VALUES
+import com.nuvio.app.features.player.SubtitleFontOption
 import com.nuvio.app.features.player.SubtitleBackgroundColorSwatches
 import com.nuvio.app.features.player.SubtitleColorSwatches
 import com.nuvio.app.features.player.SubtitleLanguageOption
@@ -702,6 +703,61 @@ private fun PlaybackSettingsSection(
                         isTablet = isTablet,
                         onClick = { showSubtitleOutlineColorDialog = true },
                     )
+                }
+                if (isIos) {
+                    val fontOptions = SubtitleFontOption.all
+                    val currentFontIndex = fontOptions.indexOfFirst { it.id == subtitleStyle.fontFamily }
+                        .coerceAtLeast(0)
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
+                        title = stringResource(Res.string.compose_player_subtitle_font),
+                        description = fontOptions[currentFontIndex].label,
+                        enabled = subtitleRenderingEnabled,
+                        isTablet = isTablet,
+                        onClick = {
+                            val next = fontOptions[(currentFontIndex + 1) % fontOptions.size]
+                            PlayerSettingsRepository.setSubtitleStyle(subtitleStyle.copy(fontFamily = next.id))
+                        },
+                    )
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsSwitchRow(
+                        title = stringResource(Res.string.compose_player_shadow),
+                        description = stringResource(Res.string.compose_player_shadow_background_hint),
+                        checked = subtitleStyle.shadowEnabled,
+                        enabled = subtitleRenderingEnabled,
+                        isTablet = isTablet,
+                        onCheckedChange = { enabled ->
+                            PlayerSettingsRepository.setSubtitleStyle(subtitleStyle.copy(shadowEnabled = enabled))
+                        },
+                    )
+                    if (subtitleStyle.shadowEnabled) {
+                        SettingsGroupDivider(isTablet = isTablet)
+                        SettingsSliderRow(
+                            title = stringResource(Res.string.compose_player_shadow_distance),
+                            value = subtitleStyle.shadowOffset,
+                            valueText = { offset -> offset.toString() },
+                            valueRange = 1..8,
+                            step = 1,
+                            isTablet = isTablet,
+                            enabled = subtitleRenderingEnabled,
+                            onValueChange = { value ->
+                                PlayerSettingsRepository.setSubtitleStyle(subtitleStyle.copy(shadowOffset = value))
+                            },
+                        )
+                        SettingsGroupDivider(isTablet = isTablet)
+                        SettingsSliderRow(
+                            title = stringResource(Res.string.compose_player_shadow_softness),
+                            value = subtitleStyle.shadowSoftness,
+                            valueText = { softness -> softness.toString() },
+                            valueRange = 0..5,
+                            step = 1,
+                            isTablet = isTablet,
+                            enabled = subtitleRenderingEnabled,
+                            onValueChange = { value ->
+                                PlayerSettingsRepository.setSubtitleStyle(subtitleStyle.copy(shadowSoftness = value))
+                            },
+                        )
+                    }
                 }
                 val showLibassSettings = !isIos && androidPlaybackEngine != AndroidPlaybackEngine.Libmpv
                 if (showLibassSettings) {

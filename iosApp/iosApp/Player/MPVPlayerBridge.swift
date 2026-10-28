@@ -1,6 +1,7 @@
 import Foundation
 import UIKit
 import AVFoundation
+import CoreText
 import Libmpv
 import ComposeApp
 
@@ -181,7 +182,11 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
         bold: Bool,
         fontSize: Float,
         subPos: Int32,
-        stripSdh: Bool
+        stripSdh: Bool,
+        fontFamily: String,
+        shadowColor: String,
+        shadowOffset: Float,
+        shadowBlur: Float
     ) {
         playerVC?.applySubtitleStyle(
             textColor: textColor,
@@ -191,7 +196,11 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
             bold: bold,
             fontSize: fontSize,
             subPos: Int(subPos),
-            stripSdh: stripSdh
+            stripSdh: stripSdh,
+            fontFamily: fontFamily,
+            shadowColor: shadowColor,
+            shadowOffset: shadowOffset,
+            shadowBlur: shadowBlur
         )
     }
 
@@ -576,8 +585,31 @@ final class MPVPlayerViewController: UIViewController {
         fontDirectory.withCString { path in
             checkError(mpv_set_option_string(mpv, "sub-fonts-dir", path))
         }
-        checkError(mpv_set_option_string(mpv, "sub-font", "Noto Sans CJK SC"))
+        checkError(mpv_set_option_string(mpv, "sub-font", Self.bundledSubtitleFontName))
         print("[MPV] Using bundled CJK subtitle font: \(fontURL.lastPathComponent)")
+    }
+
+    private static let bundledSubtitleFontName = "Noto Sans CJK SC"
+
+    /// The iOS system font that renders Arabic (SF Arabic on current iOS). libass is built
+    /// with CoreText, so it can load this by its family name; Latin text in it matches SF Pro.
+    private static let systemSubtitleFontName: String? = {
+        let baseFont = UIFont.systemFont(ofSize: 17) as CTFont
+        let sample = "مرحبا" as CFString
+        let arabicFont = CTFontCreateForString(baseFont, sample, CFRange(location: 0, length: CFStringGetLength(sample)))
+        let family = CTFontCopyFamilyName(arabicFont) as String
+        return family.isEmpty ? nil : family
+    }()
+
+    private func resolveSubtitleFontName(_ fontFamily: String) -> String {
+        switch fontFamily {
+        case "", "default":
+            return Self.bundledSubtitleFontName
+        case "system":
+            return Self.systemSubtitleFontName ?? Self.bundledSubtitleFontName
+        default:
+            return fontFamily
+        }
     }
 
     private func setupNotifications() {
@@ -920,16 +952,29 @@ final class MPVPlayerViewController: UIViewController {
         bold: Bool,
         fontSize: Float,
         subPos: Int,
-        stripSdh: Bool
+        stripSdh: Bool,
+        fontFamily: String,
+        shadowColor: String,
+        shadowOffset: Float,
+        shadowBlur: Float
     ) {
         guard mpv != nil else { return }
 
+        // In outline-and-shadow mode mpv paints the shadow with sub-back-color, so the
+        // shadow only applies when there is no background box using that colour.
+        let hasBackground = !backgroundColor.hasPrefix("#00")
         checkError(mpv_set_property_string(mpv, "sub-ass-override", "no"))
         checkError(mpv_set_property_string(mpv, "sub-color", textColor))
-        checkError(mpv_set_property_string(mpv, "sub-back-color", backgroundColor))
+        checkError(mpv_set_property_string(mpv, "sub-back-color", hasBackground ? backgroundColor : shadowColor))
         checkError(mpv_set_property_string(mpv, "sub-outline-color", outlineColor))
-        checkError(mpv_set_property_string(mpv, "sub-border-style", backgroundColor.hasPrefix("#00") ? "outline-and-shadow" : "opaque-box"))
+        checkError(mpv_set_property_string(mpv, "sub-border-style", hasBackground ? "opaque-box" : "outline-and-shadow"))
         setStringProperty("sub-bold", bold ? "yes" : "no")
+        setStringProperty("sub-font", resolveSubtitleFontName(fontFamily))
+
+        var shadow = hasBackground ? 0.0 : Double(shadowOffset)
+        checkError(mpv_set_property(mpv, "sub-shadow-offset", MPV_FORMAT_DOUBLE, &shadow))
+        var blur = Double(shadowBlur)
+        checkError(mpv_set_property(mpv, "sub-blur", MPV_FORMAT_DOUBLE, &blur))
 
         var outline = Double(outlineSize)
         checkError(mpv_set_property(mpv, "sub-outline-size", MPV_FORMAT_DOUBLE, &outline))

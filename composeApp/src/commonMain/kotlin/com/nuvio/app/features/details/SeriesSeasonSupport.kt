@@ -40,3 +40,42 @@ internal fun MetaDetails.groupedEpisodesForDisplay(): Map<Int, List<MetaVideo>> 
         else -> emptyMap()
     }
 }
+
+// Long-running shows (Detective Conan, One Piece) list 1000+ episodes in a single season.
+// Seasons above this size are split into ranges so a far episode is one tap away.
+internal const val EPISODE_RANGE_SIZE = 50
+
+internal data class EpisodeRange(
+    val fromIndex: Int,
+    val toIndex: Int,
+    val label: String,
+)
+
+internal fun episodeRangesFor(episodes: List<MetaVideo>): List<EpisodeRange> {
+    if (episodes.size <= EPISODE_RANGE_SIZE) return emptyList()
+    return (episodes.indices step EPISODE_RANGE_SIZE).map { start ->
+        val end = minOf(start + EPISODE_RANGE_SIZE, episodes.size)
+        val first = episodes[start].episode ?: (start + 1)
+        val last = episodes[end - 1].episode ?: end
+        EpisodeRange(fromIndex = start, toIndex = end, label = "$first-$last")
+    }
+}
+
+internal fun episodeRangeIndexFor(
+    ranges: List<EpisodeRange>,
+    episodes: List<MetaVideo>,
+    episodeNumber: Int?,
+): Int {
+    if (ranges.isEmpty() || episodeNumber == null) return 0
+    val episodeIndex = episodes.indexOfFirst { it.episode == episodeNumber }
+    if (episodeIndex < 0) return 0
+    return ranges.indexOfFirst { episodeIndex in it.fromIndex until it.toIndex }.coerceAtLeast(0)
+}
+
+internal fun List<MetaVideo>.inEpisodeRange(
+    ranges: List<EpisodeRange>,
+    rangeIndex: Int,
+): List<MetaVideo> {
+    val range = ranges.getOrNull(rangeIndex) ?: return this
+    return subList(range.fromIndex, range.toIndex)
+}

@@ -42,6 +42,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -71,13 +72,17 @@ import com.nuvio.app.core.ui.nuvioCardDepth
 import com.nuvio.app.core.ui.nuvioHorizontalScrollBleed
 import com.nuvio.app.core.ui.posterCardClickable
 import com.nuvio.app.features.details.MetaDetails
+import com.nuvio.app.features.details.EpisodeRange
 import com.nuvio.app.features.details.EpisodeRatingsVisibility
 import com.nuvio.app.features.details.MetaEpisodeCardStyle
 import com.nuvio.app.features.details.MetaVideo
 import com.nuvio.app.features.details.SeasonViewMode
 import com.nuvio.app.features.details.SeasonViewModeStorage
+import com.nuvio.app.features.details.episodeRangeIndexFor
+import com.nuvio.app.features.details.episodeRangesFor
 import com.nuvio.app.features.details.formatRuntimeFromMinutes
 import com.nuvio.app.features.details.groupedEpisodesForDisplay
+import com.nuvio.app.features.details.inEpisodeRange
 import com.nuvio.app.features.details.preferredEpisodeNumberForSeason
 import com.nuvio.app.features.details.seasonSortKey
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
@@ -213,28 +218,46 @@ fun DetailSeriesContent(
                             },
                         )
                     }
-                    val seasonEpisodes = groupedEpisodes.getValue(seasonForContent)
+                    val allSeasonEpisodes = groupedEpisodes.getValue(seasonForContent)
+                    val seasonPreferredEpisode = preferredEpisodeNumberForSeason(
+                        displayedSeasonNumber = seasonForContent,
+                        preferredSeasonNumber = preferredSeasonNumber,
+                        preferredEpisodeNumber = preferredEpisodeNumber,
+                    )
+                    val episodeRanges = remember(allSeasonEpisodes) { episodeRangesFor(allSeasonEpisodes) }
+                    var selectedRangeOverride by rememberSaveable(meta.id, seasonForContent) {
+                        mutableStateOf<Int?>(null)
+                    }
+                    val currentRangeIndex = selectedRangeOverride
+                        ?.takeIf { it in episodeRanges.indices }
+                        ?: episodeRangeIndexFor(episodeRanges, allSeasonEpisodes, seasonPreferredEpisode)
+                    val seasonEpisodes = allSeasonEpisodes.inEpisodeRange(episodeRanges, currentRangeIndex)
+                    EpisodeRangeChipRow(
+                        ranges = episodeRanges,
+                        currentRangeIndex = currentRangeIndex,
+                        horizontalScrollPadding = horizontalScrollPadding,
+                        onSelect = { selectedRangeOverride = it },
+                    )
                     if (episodeCardStyle == MetaEpisodeCardStyle.Horizontal) {
-                        EpisodeHorizontalRow(
-                            episodes = seasonEpisodes,
-                            maxWidthDp = containerWidthDp,
-                            horizontalScrollPadding = horizontalScrollPadding,
-                            parentMetaId = meta.id,
-                            metaType = meta.type,
-                            watchedKeys = watchedKeys,
-                            fallbackImage = meta.background ?: meta.poster,
-                            progressByVideoId = progressByVideoId,
-                            episodeRatings = episodeRatings,
-                            episodeRatingsVisibility = episodeRatingsVisibility,
-                            blurUnwatchedEpisodes = blurUnwatchedEpisodes,
-                            preferredEpisodeNumber = preferredEpisodeNumberForSeason(
-                                displayedSeasonNumber = seasonForContent,
-                                preferredSeasonNumber = preferredSeasonNumber,
-                                preferredEpisodeNumber = preferredEpisodeNumber,
-                            ),
-                            onEpisodeClick = onEpisodeClick,
-                            onEpisodeLongPress = onEpisodeLongPress,
-                        )
+                        // Fresh row state per range, so switching ranges starts at its first episode.
+                        key(currentRangeIndex) {
+                            EpisodeHorizontalRow(
+                                episodes = seasonEpisodes,
+                                maxWidthDp = containerWidthDp,
+                                horizontalScrollPadding = horizontalScrollPadding,
+                                parentMetaId = meta.id,
+                                metaType = meta.type,
+                                watchedKeys = watchedKeys,
+                                fallbackImage = meta.background ?: meta.poster,
+                                progressByVideoId = progressByVideoId,
+                                episodeRatings = episodeRatings,
+                                episodeRatingsVisibility = episodeRatingsVisibility,
+                                blurUnwatchedEpisodes = blurUnwatchedEpisodes,
+                                preferredEpisodeNumber = seasonPreferredEpisode,
+                                onEpisodeClick = onEpisodeClick,
+                                onEpisodeLongPress = onEpisodeLongPress,
+                            )
+                        }
                     } else {
                         Column(
                             verticalArrangement = Arrangement.spacedBy(sizing.cardGap),
@@ -283,6 +306,9 @@ internal fun DetailSeriesListHeader(
     onSeasonSelect: (Int) -> Unit,
     onSeasonLongPress: ((Int) -> Unit)?,
     modifier: Modifier = Modifier,
+    episodeRanges: List<EpisodeRange> = emptyList(),
+    currentEpisodeRangeIndex: Int = 0,
+    onEpisodeRangeSelect: (Int) -> Unit = {},
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         val sizing = seriesContentSizing(maxWidth.value)
@@ -303,6 +329,66 @@ internal fun DetailSeriesListHeader(
                         stringResource(Res.string.details_videos)
                     } else {
                         currentSeason.label()
+                    },
+                )
+            }
+            EpisodeRangeChipRow(
+                ranges = episodeRanges,
+                currentRangeIndex = currentEpisodeRangeIndex,
+                horizontalScrollPadding = horizontalScrollPadding,
+                onSelect = onEpisodeRangeSelect,
+            )
+        }
+    }
+}
+
+@Composable
+private fun EpisodeRangeChipRow(
+    ranges: List<EpisodeRange>,
+    currentRangeIndex: Int,
+    horizontalScrollPadding: Dp,
+    onSelect: (Int) -> Unit,
+) {
+    if (ranges.isEmpty()) return
+
+    val rangeListState = rememberLazyListState()
+    LaunchedEffect(ranges, currentRangeIndex) {
+        rangeListState.animateScrollToItem(currentRangeIndex.coerceIn(0, ranges.lastIndex))
+    }
+
+    LazyRow(
+        state = rangeListState,
+        modifier = Modifier
+            .nuvioHorizontalScrollBleed(horizontalScrollPadding)
+            .fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = horizontalScrollPadding),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        itemsIndexed(ranges, key = { _, range -> range.fromIndex }) { index, range ->
+            val isSelected = index == currentRangeIndex
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(
+                        if (isSelected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                        },
+                    )
+                    .clickable { onSelect(index) }
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = range.label,
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                    ),
+                    color = if (isSelected) {
+                        MaterialTheme.colorScheme.onPrimary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
                     },
                 )
             }

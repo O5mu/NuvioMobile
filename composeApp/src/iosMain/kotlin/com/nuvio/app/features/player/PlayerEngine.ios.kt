@@ -285,6 +285,10 @@ actual fun PlatformPlayerSurface(
                     fontSize = style.toMpvSubtitleFontSize(),
                     subPos = style.toMpvSubtitlePosition(),
                     stripSdh = style.stripSdh,
+                    fontFamily = style.fontFamily,
+                    shadowColor = style.shadowColor.toMpvColorString(),
+                    shadowOffset = if (style.shadowEnabled) style.shadowOffset.toFloat() else 0f,
+                    shadowBlur = if (style.shadowEnabled) style.shadowSoftness.toFloat() else 0f,
                 )
             }
         }
