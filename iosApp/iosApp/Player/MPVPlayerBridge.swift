@@ -521,6 +521,7 @@ final class MPVPlayerViewController: UIViewController {
 
     private func setupMpv() {
         mpv = mpv_create()
+        appliedSubtitleOptions.removeAll()
         guard mpv != nil else {
             print("[MPV] Failed to create mpv instance")
             return
@@ -591,24 +592,90 @@ final class MPVPlayerViewController: UIViewController {
 
     private static let bundledSubtitleFontName = "Noto Sans CJK SC"
 
-    /// The iOS system font that renders Arabic (SF Arabic on current iOS). libass is built
-    /// with CoreText, so it can load this by its family name; Latin text in it matches SF Pro.
-    private static let systemSubtitleFontName: String? = {
-        let baseFont = UIFont.systemFont(ofSize: 17) as CTFont
-        let sample = "مرحبا" as CFString
-        let arabicFont = CTFontCreateForString(baseFont, sample, CFRange(location: 0, length: CFStringGetLength(sample)))
-        let family = CTFontCopyFamilyName(arabicFont) as String
-        return family.isEmpty ? nil : family
-    }()
+    private static var bundledSubtitleFontURL: URL? {
+        Bundle.main.url(forResource: "NotoSansCJKsc-Regular", withExtension: "otf")
+    }
 
-    private func resolveSubtitleFontName(_ fontFamily: String) -> String {
-        switch fontFamily {
-        case "", "default":
-            return Self.bundledSubtitleFontName
-        case "system":
-            return Self.systemSubtitleFontName ?? Self.bundledSubtitleFontName
-        default:
-            return fontFamily
+    private struct SubtitleFontSelection {
+        let directory: String?
+        let name: String
+    }
+
+    private var subtitleFontSelections: [String: SubtitleFontSelection] = [:]
+
+    /// libass's own CoreText lookup does not reliably find iOS system fonts, so the chosen
+    /// font file is copied into its own fonts folder next to the bundled CJK font. mpv loads
+    /// that folder directly, and switching folders makes it reload the subtitle fonts.
+    private func subtitleFontSelection(for fontFamily: String) -> SubtitleFontSelection {
+        if let cached = subtitleFontSelections[fontFamily] { return cached }
+        let bundled = SubtitleFontSelection(
+            directory: Self.bundledSubtitleFontURL?.deletingLastPathComponent().path,
+            name: Self.bundledSubtitleFontName
+        )
+        guard fontFamily != "", fontFamily != "default", let font = Self.systemFont(for: fontFamily) else {
+            return bundled
+        }
+
+        let family = CTFontCopyFamilyName(font) as String
+        // Hidden system fonts (".SF Arabic") are safest to request by their PostScript name.
+        let requestName = family.hasPrefix(".") ? CTFontCopyPostScriptName(font) as String : family
+        var selection = SubtitleFontSelection(directory: bundled.directory, name: requestName)
+        if let directory = copySubtitleFont(font, key: fontFamily) {
+            selection = SubtitleFontSelection(directory: directory, name: requestName)
+        }
+        subtitleFontSelections[fontFamily] = selection
+        return selection
+    }
+
+    private static func systemFont(for fontFamily: String) -> CTFont? {
+        if fontFamily == "system" {
+            // The iOS system font that renders Arabic (SF Arabic); its Latin glyphs match SF Pro.
+            let baseFont = UIFont.systemFont(ofSize: 17) as CTFont
+            let sample = "مرحبا" as CFString
+            return CTFontCreateForString(baseFont, sample, CFRange(location: 0, length: CFStringGetLength(sample)))
+        }
+        let font = CTFontCreateWithName(fontFamily as CFString, 17, nil)
+        // CoreText substitutes a default font for unknown names; only accept a real match.
+        return (CTFontCopyFamilyName(font) as String) == fontFamily ? font : nil
+    }
+
+    private func copySubtitleFont(_ font: CTFont, key: String) -> String? {
+        guard let sourceURL = CTFontCopyAttribute(font, kCTFontURLAttribute) as? URL,
+              let cachesURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+        else { return nil }
+
+        let fileManager = FileManager.default
+        let safeKey = key.replacingOccurrences(of: "[^A-Za-z0-9]", with: "_", options: .regularExpression)
+        let directoryURL = cachesURL.appendingPathComponent("SubtitleFonts/\(safeKey)", isDirectory: true)
+        do {
+            try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+            let fontCopyURL = directoryURL.appendingPathComponent(sourceURL.lastPathComponent)
+            if !fileManager.fileExists(atPath: fontCopyURL.path) {
+                try fileManager.copyItem(at: sourceURL, to: fontCopyURL)
+            }
+            // Keep the bundled font next to it for CJK text; the bundle path changes on updates.
+            if let bundledURL = Self.bundledSubtitleFontURL {
+                let linkURL = directoryURL.appendingPathComponent(bundledURL.lastPathComponent)
+                try? fileManager.removeItem(at: linkURL)
+                try fileManager.createSymbolicLink(at: linkURL, withDestinationURL: bundledURL)
+            }
+            return directoryURL.path
+        } catch {
+            print("[MPV] Could not prepare subtitle font \(key): \(error)")
+            return nil
+        }
+    }
+
+    private var appliedSubtitleOptions: [String: String] = [:]
+
+    /// Sets a subtitle option without waiting for mpv, and skips values that did not change,
+    /// so style edits during playback never block the UI.
+    private func setSubtitleOption(_ name: String, _ value: String) {
+        guard mpv != nil, appliedSubtitleOptions[name] != value else { return }
+        appliedSubtitleOptions[name] = value
+        value.withCString { cValue in
+            var data: UnsafePointer<CChar>? = cValue
+            checkError(mpv_set_property_async(mpv, 0, name, MPV_FORMAT_STRING, &data))
         }
     }
 
@@ -941,7 +1008,8 @@ final class MPVPlayerViewController: UIViewController {
     func setSubtitleDelayMs(_ delayMs: Int) {
         guard mpv != nil else { return }
         var delaySeconds = Double(max(-60_000, min(60_000, delayMs))) / 1000.0
-        checkError(mpv_set_property(mpv, "sub-delay", MPV_FORMAT_DOUBLE, &delaySeconds))
+        // Async so repeated taps on the delay stepper never wait on the playback thread.
+        checkError(mpv_set_property_async(mpv, 0, "sub-delay", MPV_FORMAT_DOUBLE, &delaySeconds))
     }
 
     func applySubtitleStyle(
@@ -963,29 +1031,24 @@ final class MPVPlayerViewController: UIViewController {
         // In outline-and-shadow mode mpv paints the shadow with sub-back-color, so the
         // shadow only applies when there is no background box using that colour.
         let hasBackground = !backgroundColor.hasPrefix("#00")
-        checkError(mpv_set_property_string(mpv, "sub-ass-override", "no"))
-        checkError(mpv_set_property_string(mpv, "sub-color", textColor))
-        checkError(mpv_set_property_string(mpv, "sub-back-color", hasBackground ? backgroundColor : shadowColor))
-        checkError(mpv_set_property_string(mpv, "sub-outline-color", outlineColor))
-        checkError(mpv_set_property_string(mpv, "sub-border-style", hasBackground ? "opaque-box" : "outline-and-shadow"))
-        setStringProperty("sub-bold", bold ? "yes" : "no")
-        setStringProperty("sub-font", resolveSubtitleFontName(fontFamily))
-
-        var shadow = hasBackground ? 0.0 : Double(shadowOffset)
-        checkError(mpv_set_property(mpv, "sub-shadow-offset", MPV_FORMAT_DOUBLE, &shadow))
-        var blur = Double(shadowBlur)
-        checkError(mpv_set_property(mpv, "sub-blur", MPV_FORMAT_DOUBLE, &blur))
-
-        var outline = Double(outlineSize)
-        checkError(mpv_set_property(mpv, "sub-outline-size", MPV_FORMAT_DOUBLE, &outline))
-
-        var size = Double(fontSize)
-        checkError(mpv_set_property(mpv, "sub-font-size", MPV_FORMAT_DOUBLE, &size))
-
-        var position = Int64(subPos)
-        checkError(mpv_set_property(mpv, "sub-pos", MPV_FORMAT_INT64, &position))
-        setStringProperty("sub-filter-sdh", stripSdh ? "yes" : "no")
-        setStringProperty("sub-filter-sdh-harder", stripSdh ? "yes" : "no")
+        let font = subtitleFontSelection(for: fontFamily)
+        setSubtitleOption("sub-ass-override", "no")
+        if let directory = font.directory {
+            setSubtitleOption("sub-fonts-dir", directory)
+        }
+        setSubtitleOption("sub-font", font.name)
+        setSubtitleOption("sub-color", textColor)
+        setSubtitleOption("sub-back-color", hasBackground ? backgroundColor : shadowColor)
+        setSubtitleOption("sub-outline-color", outlineColor)
+        setSubtitleOption("sub-border-style", hasBackground ? "opaque-box" : "outline-and-shadow")
+        setSubtitleOption("sub-bold", bold ? "yes" : "no")
+        setSubtitleOption("sub-shadow-offset", String(hasBackground ? 0.0 : Double(shadowOffset)))
+        setSubtitleOption("sub-blur", String(Double(shadowBlur)))
+        setSubtitleOption("sub-outline-size", String(Double(outlineSize)))
+        setSubtitleOption("sub-font-size", String(Double(fontSize)))
+        setSubtitleOption("sub-pos", String(subPos))
+        setSubtitleOption("sub-filter-sdh", stripSdh ? "yes" : "no")
+        setSubtitleOption("sub-filter-sdh-harder", stripSdh ? "yes" : "no")
     }
 
     func destroyPlayer() {
