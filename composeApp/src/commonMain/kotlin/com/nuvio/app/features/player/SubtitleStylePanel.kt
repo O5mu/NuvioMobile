@@ -23,6 +23,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -61,6 +65,8 @@ import nuvio.composeapp.generated.resources.compose_player_shadow_softness
 import nuvio.composeapp.generated.resources.compose_player_style
 import nuvio.composeapp.generated.resources.compose_player_subtitle_delay
 import nuvio.composeapp.generated.resources.compose_player_subtitle_font
+import nuvio.composeapp.generated.resources.compose_player_subtitle_import_font
+import nuvio.composeapp.generated.resources.compose_player_subtitle_import_font_hint
 import nuvio.composeapp.generated.resources.compose_player_text_opacity
 import org.jetbrains.compose.resources.stringResource
 import kotlin.math.abs
@@ -136,6 +142,14 @@ fun SubtitleStylePanel(
 
         // Font and shadow are rendered by mpv, which only the iOS player uses.
         if (isIos) {
+            var fontListVersion by remember { mutableIntStateOf(0) }
+            val fontOptions = remember(fontListVersion) { availableSubtitleFontOptions() }
+            val importFont = rememberSubtitleFontImporter { imported ->
+                if (imported != null) {
+                    fontListVersion++
+                    onStyleChanged(style.copy(fontFamily = imported.id))
+                }
+            }
             SubtitleStyleSection(title = stringResource(Res.string.compose_player_subtitle_font)) {
                 Row(
                     modifier = Modifier
@@ -143,14 +157,20 @@ fun SubtitleStylePanel(
                         .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    SubtitleFontOption.all.forEach { option ->
+                    fontOptions.forEach { option ->
                         SubtitleOptionChip(
                             label = option.label,
                             selected = option.id == style.fontFamily,
                             onClick = { onStyleChanged(style.copy(fontFamily = option.id)) },
                         )
                     }
+                    SubtitleOptionChip(
+                        label = "+ " + stringResource(Res.string.compose_player_subtitle_import_font),
+                        selected = false,
+                        onClick = importFont,
+                    )
                 }
+                SubtitleHelperText(stringResource(Res.string.compose_player_subtitle_import_font_hint))
             }
         }
 

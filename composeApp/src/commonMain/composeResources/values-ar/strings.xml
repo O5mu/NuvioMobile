@@ -379,6 +379,8 @@
     <string name="compose_player_outline">حدود النص</string>
     <string name="compose_player_outline_color">لون الحدود</string>
     <string name="compose_player_subtitle_font">الخط</string>
+    <string name="compose_player_subtitle_import_font">استيراد خط</string>
+    <string name="compose_player_subtitle_import_font_hint">اختر ملف خط بصيغة ‎.ttf أو ‎.otf من تطبيق الملفات</string>
     <string name="compose_player_shadow">الظل</string>
     <string name="compose_player_shadow_color">لون الظل</string>
     <string name="compose_player_shadow_opacity">شفافية الظل</string>

@@ -36,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -72,7 +73,8 @@ import com.nuvio.app.features.player.IosTargetPrimaries
 import com.nuvio.app.features.player.IosTargetTransfer
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.player.STREAM_AUTO_PLAY_TIMEOUT_VALUES
-import com.nuvio.app.features.player.SubtitleFontOption
+import com.nuvio.app.features.player.availableSubtitleFontOptions
+import com.nuvio.app.features.player.rememberSubtitleFontImporter
 import com.nuvio.app.features.player.SubtitleBackgroundColorSwatches
 import com.nuvio.app.features.player.SubtitleColorSwatches
 import com.nuvio.app.features.player.SubtitleLanguageOption
@@ -705,9 +707,16 @@ private fun PlaybackSettingsSection(
                     )
                 }
                 if (isIos) {
-                    val fontOptions = SubtitleFontOption.all
+                    var fontListVersion by remember { mutableIntStateOf(0) }
+                    val fontOptions = remember(fontListVersion) { availableSubtitleFontOptions() }
                     val currentFontIndex = fontOptions.indexOfFirst { it.id == subtitleStyle.fontFamily }
                         .coerceAtLeast(0)
+                    val importFont = rememberSubtitleFontImporter { imported ->
+                        if (imported != null) {
+                            fontListVersion++
+                            PlayerSettingsRepository.setSubtitleStyle(subtitleStyle.copy(fontFamily = imported.id))
+                        }
+                    }
                     SettingsGroupDivider(isTablet = isTablet)
                     SettingsNavigationRow(
                         title = stringResource(Res.string.compose_player_subtitle_font),
@@ -718,6 +727,14 @@ private fun PlaybackSettingsSection(
                             val next = fontOptions[(currentFontIndex + 1) % fontOptions.size]
                             PlayerSettingsRepository.setSubtitleStyle(subtitleStyle.copy(fontFamily = next.id))
                         },
+                    )
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
+                        title = stringResource(Res.string.compose_player_subtitle_import_font),
+                        description = stringResource(Res.string.compose_player_subtitle_import_font_hint),
+                        enabled = subtitleRenderingEnabled,
+                        isTablet = isTablet,
+                        onClick = importFont,
                     )
                     SettingsGroupDivider(isTablet = isTablet)
                     SettingsSwitchRow(

@@ -612,6 +612,12 @@ final class MPVPlayerViewController: UIViewController {
             directory: Self.bundledSubtitleFontURL?.deletingLastPathComponent().path,
             name: Self.bundledSubtitleFontName
         )
+        if fontFamily.hasPrefix(Self.importedFontPrefix) {
+            let selection = importedFontSelection(fileName: String(fontFamily.dropFirst(Self.importedFontPrefix.count)))
+                ?? bundled
+            subtitleFontSelections[fontFamily] = selection
+            return selection
+        }
         guard fontFamily != "", fontFamily != "default", let font = Self.systemFont(for: fontFamily) else {
             return bundled
         }
@@ -639,19 +645,52 @@ final class MPVPlayerViewController: UIViewController {
         return (CTFontCopyFamilyName(font) as String) == fontFamily ? font : nil
     }
 
-    private func copySubtitleFont(_ font: CTFont, key: String) -> String? {
-        guard let sourceURL = CTFontCopyAttribute(font, kCTFontURLAttribute) as? URL,
-              let cachesURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+    /// Fonts imported from Files live in Application Support/SubtitleFonts (written by the
+    /// Kotlin font importer) and arrive here as "file:<file name>".
+    private static let importedFontPrefix = "file:"
+
+    private func importedFontSelection(fileName: String) -> SubtitleFontSelection? {
+        guard !fileName.isEmpty, !fileName.contains("/"),
+              let supportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
         else { return nil }
+        let fontURL = supportURL.appendingPathComponent("SubtitleFonts/\(fileName)")
+        guard FileManager.default.fileExists(atPath: fontURL.path) else { return nil }
+
+        let descriptors = CTFontManagerCreateFontDescriptorsFromURL(fontURL as CFURL) as? [CTFontDescriptor]
+        let family = descriptors?.first.flatMap {
+            CTFontDescriptorCopyAttribute($0, kCTFontFamilyNameAttribute) as? String
+        } ?? fontURL.deletingPathExtension().lastPathComponent
+        guard let directory = prepareSubtitleFontDirectory(key: "file_\(fileName)", fontURL: fontURL, copy: false) else {
+            return nil
+        }
+        return SubtitleFontSelection(directory: directory, name: family)
+    }
+
+    private func copySubtitleFont(_ font: CTFont, key: String) -> String? {
+        guard let sourceURL = CTFontCopyAttribute(font, kCTFontURLAttribute) as? URL else { return nil }
+        return prepareSubtitleFontDirectory(key: key, fontURL: sourceURL, copy: true)
+    }
+
+    /// Builds a fonts folder holding the given font (copied, or linked for imported files)
+    /// plus the bundled CJK font, and returns its path for sub-fonts-dir.
+    private func prepareSubtitleFontDirectory(key: String, fontURL: URL, copy: Bool) -> String? {
+        guard let cachesURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
+            return nil
+        }
 
         let fileManager = FileManager.default
         let safeKey = key.replacingOccurrences(of: "[^A-Za-z0-9]", with: "_", options: .regularExpression)
         let directoryURL = cachesURL.appendingPathComponent("SubtitleFonts/\(safeKey)", isDirectory: true)
         do {
             try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-            let fontCopyURL = directoryURL.appendingPathComponent(sourceURL.lastPathComponent)
-            if !fileManager.fileExists(atPath: fontCopyURL.path) {
-                try fileManager.copyItem(at: sourceURL, to: fontCopyURL)
+            let fontTargetURL = directoryURL.appendingPathComponent(fontURL.lastPathComponent)
+            if copy {
+                if !fileManager.fileExists(atPath: fontTargetURL.path) {
+                    try fileManager.copyItem(at: fontURL, to: fontTargetURL)
+                }
+            } else {
+                try? fileManager.removeItem(at: fontTargetURL)
+                try fileManager.createSymbolicLink(at: fontTargetURL, withDestinationURL: fontURL)
             }
             // Keep the bundled font next to it for CJK text; the bundle path changes on updates.
             if let bundledURL = Self.bundledSubtitleFontURL {
