@@ -1070,6 +1070,9 @@ final class MPVPlayerViewController: UIViewController {
         // In outline-and-shadow mode mpv paints the shadow with sub-back-color, so the
         // shadow only applies when there is no background box using that colour.
         let hasBackground = !backgroundColor.hasPrefix("#00")
+        // libass blurs the outline when there is one and the text itself otherwise, so a soft
+        // shadow without a visible outline gets a thin transparent outline to carry the blur.
+        let blurCarrierOutline = !hasBackground && shadowBlur > 0 && outlineSize <= 0
         let font = subtitleFontSelection(for: fontFamily)
         setSubtitleOption("sub-ass-override", "no")
         if let directory = font.directory {
@@ -1078,12 +1081,12 @@ final class MPVPlayerViewController: UIViewController {
         setSubtitleOption("sub-font", font.name)
         setSubtitleOption("sub-color", textColor)
         setSubtitleOption("sub-back-color", hasBackground ? backgroundColor : shadowColor)
-        setSubtitleOption("sub-outline-color", outlineColor)
+        setSubtitleOption("sub-outline-color", blurCarrierOutline ? "#00000000" : outlineColor)
         setSubtitleOption("sub-border-style", hasBackground ? "opaque-box" : "outline-and-shadow")
         setSubtitleOption("sub-bold", bold ? "yes" : "no")
         setSubtitleOption("sub-shadow-offset", String(hasBackground ? 0.0 : Double(shadowOffset)))
         setSubtitleOption("sub-blur", String(Double(shadowBlur)))
-        setSubtitleOption("sub-outline-size", String(Double(outlineSize)))
+        setSubtitleOption("sub-outline-size", String(blurCarrierOutline ? 0.25 : Double(outlineSize)))
         setSubtitleOption("sub-font-size", String(Double(fontSize)))
         setSubtitleOption("sub-pos", String(subPos))
         setSubtitleOption("sub-filter-sdh", stripSdh ? "yes" : "no")
