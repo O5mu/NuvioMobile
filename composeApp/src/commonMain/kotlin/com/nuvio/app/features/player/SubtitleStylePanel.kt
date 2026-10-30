@@ -144,6 +144,9 @@ fun SubtitleStylePanel(
         if (isIos) {
             var fontListVersion by remember { mutableIntStateOf(0) }
             val fontOptions = remember(fontListVersion) { availableSubtitleFontOptions() }
+            // A font that is no longer offered falls back to the default in the player too.
+            val selectedFontId = fontOptions.firstOrNull { it.id == style.fontFamily }?.id
+                ?: SubtitleFontOption.DEFAULT_ID
             val importFont = rememberSubtitleFontImporter { imported ->
                 if (imported != null) {
                     fontListVersion++
@@ -160,7 +163,7 @@ fun SubtitleStylePanel(
                     fontOptions.forEach { option ->
                         SubtitleOptionChip(
                             label = option.label,
-                            selected = option.id == style.fontFamily,
+                            selected = option.id == selectedFontId,
                             onClick = { onStyleChanged(style.copy(fontFamily = option.id)) },
                         )
                     }

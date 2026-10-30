@@ -67,8 +67,7 @@ data class SubtitleStyleState(
 
 /**
  * Subtitle fonts offered on iOS. [id] is what the player receives: "default" keeps the
- * bundled Noto font, "file:<name>" is a font the user imported from Files, and anything
- * else is an installed iOS font family looked up by name.
+ * bundled Noto font and "file:<name>" is a font the user imported from Files.
  */
 data class SubtitleFontOption(
     val id: String,
@@ -78,13 +77,7 @@ data class SubtitleFontOption(
         const val DEFAULT_ID = "default"
         const val IMPORTED_PREFIX = "file:"
 
-        val all = listOf(
-            SubtitleFontOption(DEFAULT_ID, "Noto Sans"),
-            SubtitleFontOption("Geeza Pro", "Geeza Pro"),
-            SubtitleFontOption("Damascus", "Damascus"),
-            SubtitleFontOption("Helvetica Neue", "Helvetica Neue"),
-            SubtitleFontOption("Avenir Next", "Avenir Next"),
-        )
+        val all = listOf(SubtitleFontOption(DEFAULT_ID, "Default"))
     }
 }
 

@@ -603,46 +603,19 @@ final class MPVPlayerViewController: UIViewController {
 
     private var subtitleFontSelections: [String: SubtitleFontSelection] = [:]
 
-    /// libass's own CoreText lookup does not reliably find iOS system fonts, so the chosen
-    /// font file is copied into its own fonts folder next to the bundled CJK font. mpv loads
-    /// that folder directly, and switching folders makes it reload the subtitle fonts.
+    /// An imported font gets its own fonts folder next to the bundled CJK font. mpv loads that
+    /// folder directly, and switching folders makes it reload the subtitle fonts.
     private func subtitleFontSelection(for fontFamily: String) -> SubtitleFontSelection {
         if let cached = subtitleFontSelections[fontFamily] { return cached }
         let bundled = SubtitleFontSelection(
             directory: Self.bundledSubtitleFontURL?.deletingLastPathComponent().path,
             name: Self.bundledSubtitleFontName
         )
-        if fontFamily.hasPrefix(Self.importedFontPrefix) {
-            let selection = importedFontSelection(fileName: String(fontFamily.dropFirst(Self.importedFontPrefix.count)))
-                ?? bundled
-            subtitleFontSelections[fontFamily] = selection
-            return selection
-        }
-        guard fontFamily != "", fontFamily != "default", let font = Self.systemFont(for: fontFamily) else {
-            return bundled
-        }
-
-        let family = CTFontCopyFamilyName(font) as String
-        // Hidden system fonts (".SF Arabic") are safest to request by their PostScript name.
-        let requestName = family.hasPrefix(".") ? CTFontCopyPostScriptName(font) as String : family
-        var selection = SubtitleFontSelection(directory: bundled.directory, name: requestName)
-        if let directory = copySubtitleFont(font, key: fontFamily) {
-            selection = SubtitleFontSelection(directory: directory, name: requestName)
-        }
+        guard fontFamily.hasPrefix(Self.importedFontPrefix) else { return bundled }
+        let selection = importedFontSelection(fileName: String(fontFamily.dropFirst(Self.importedFontPrefix.count)))
+            ?? bundled
         subtitleFontSelections[fontFamily] = selection
         return selection
-    }
-
-    private static func systemFont(for fontFamily: String) -> CTFont? {
-        if fontFamily == "system" {
-            // The iOS system font that renders Arabic (SF Arabic); its Latin glyphs match SF Pro.
-            let baseFont = UIFont.systemFont(ofSize: 17) as CTFont
-            let sample = "مرحبا" as CFString
-            return CTFontCreateForString(baseFont, sample, CFRange(location: 0, length: CFStringGetLength(sample)))
-        }
-        let font = CTFontCreateWithName(fontFamily as CFString, 17, nil)
-        // CoreText substitutes a default font for unknown names; only accept a real match.
-        return (CTFontCopyFamilyName(font) as String) == fontFamily ? font : nil
     }
 
     /// Fonts imported from Files live in Application Support/SubtitleFonts (written by the
@@ -660,20 +633,15 @@ final class MPVPlayerViewController: UIViewController {
         let family = descriptors?.first.flatMap {
             CTFontDescriptorCopyAttribute($0, kCTFontFamilyNameAttribute) as? String
         } ?? fontURL.deletingPathExtension().lastPathComponent
-        guard let directory = prepareSubtitleFontDirectory(key: "file_\(fileName)", fontURL: fontURL, copy: false) else {
+        guard let directory = prepareSubtitleFontDirectory(key: "file_\(fileName)", fontURL: fontURL) else {
             return nil
         }
         return SubtitleFontSelection(directory: directory, name: family)
     }
 
-    private func copySubtitleFont(_ font: CTFont, key: String) -> String? {
-        guard let sourceURL = CTFontCopyAttribute(font, kCTFontURLAttribute) as? URL else { return nil }
-        return prepareSubtitleFontDirectory(key: key, fontURL: sourceURL, copy: true)
-    }
-
-    /// Builds a fonts folder holding the given font (copied, or linked for imported files)
-    /// plus the bundled CJK font, and returns its path for sub-fonts-dir.
-    private func prepareSubtitleFontDirectory(key: String, fontURL: URL, copy: Bool) -> String? {
+    /// Builds a fonts folder linking the imported font and the
+    /// bundled CJK font, and returns its path for sub-fonts-dir.
+    private func prepareSubtitleFontDirectory(key: String, fontURL: URL) -> String? {
         guard let cachesURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
             return nil
         }
@@ -684,14 +652,8 @@ final class MPVPlayerViewController: UIViewController {
         do {
             try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
             let fontTargetURL = directoryURL.appendingPathComponent(fontURL.lastPathComponent)
-            if copy {
-                if !fileManager.fileExists(atPath: fontTargetURL.path) {
-                    try fileManager.copyItem(at: fontURL, to: fontTargetURL)
-                }
-            } else {
-                try? fileManager.removeItem(at: fontTargetURL)
-                try fileManager.createSymbolicLink(at: fontTargetURL, withDestinationURL: fontURL)
-            }
+            try? fileManager.removeItem(at: fontTargetURL)
+            try fileManager.createSymbolicLink(at: fontTargetURL, withDestinationURL: fontURL)
             // Keep the bundled font next to it for CJK text; the bundle path changes on updates.
             if let bundledURL = Self.bundledSubtitleFontURL {
                 let linkURL = directoryURL.appendingPathComponent(bundledURL.lastPathComponent)
