@@ -65,6 +65,8 @@ class MetalLayer: CAMetalLayer {
         return drawable
     }
 
+    var onPiPConsumesVideoChanged: (() -> Void)?
+
     @objc var nuvioPiPConsumesVideo: Bool {
         get {
             pictureInPictureLock.lock()
@@ -75,6 +77,7 @@ class MetalLayer: CAMetalLayer {
             pictureInPictureLock.lock()
             consumesVideo = newValue
             pictureInPictureLock.unlock()
+            DispatchQueue.main.async { [weak self] in self?.onPiPConsumesVideoChanged?() }
         }
     }
 

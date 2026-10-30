@@ -283,6 +283,14 @@ final class MPVPlayerViewController: UIViewController {
 
     private let errorStateLock = NSLock()
     private var metalLayer = MetalLayer()
+    private let nativeSubtitleView = NativeSubtitleView()
+    private var usesMpvSubtitles = false
+    private static let subtitleTextObserverID: UInt64 = 1
+    private static let subtitleGeometryObserverID: UInt64 = 2
+    /// Plain text formats. Everything else (ASS, image subtitles) carries its own look.
+    private static let nativeSubtitleCodecs: Set<String> = [
+        "subrip", "srt", "webvtt", "mov_text", "text", "microdvd", "subviewer", "mpl2", "sami",
+    ]
     private var pictureInPictureController: PlayerPictureInPictureController?
     var systemControlHandler: PlayerSystemControlHandler?
     var keepsPlaybackInBackground: Bool { pictureInPictureController?.keepsPlaybackAlive == true }
@@ -366,6 +374,10 @@ final class MPVPlayerViewController: UIViewController {
         view.layer.addSublayer(pip.displayLayer)
         view.layer.masksToBounds = true
         view.layer.addSublayer(metalLayer)
+        view.addSubview(nativeSubtitleView)
+        metalLayer.onPiPConsumesVideoChanged = { [weak self] in
+            self?.applySubtitleVisibility()
+        }
         layoutMetalLayer()
 
         setupMpv()
@@ -497,22 +509,37 @@ final class MPVPlayerViewController: UIViewController {
         guard bounds.width > 1, bounds.height > 1 else { return }
 
         let scale = view.window?.screen.nativeScale ?? UIScreen.main.nativeScale
+        var layerSize = bounds.size
+        var drawnSize = bounds.size
+        if hasFillSizedLayer {
+            let widthRatio = bounds.width / videoDisplaySize.width
+            let heightRatio = bounds.height / videoDisplaySize.height
+            let cover = max(widthRatio, heightRatio)
+            let fit = min(widthRatio, heightRatio)
+            layerSize = CGSize(width: videoDisplaySize.width * cover, height: videoDisplaySize.height * cover)
+            drawnSize = drawableIsFill
+                ? layerSize
+                : CGSize(width: videoDisplaySize.width * fit, height: videoDisplaySize.height * fit)
+        }
         let drawableSize = CGSize(
-            width: (bounds.width * scale).rounded(.toNearestOrAwayFromZero),
-            height: (bounds.height * scale).rounded(.toNearestOrAwayFromZero)
+            width: (drawnSize.width * scale).rounded(.toNearestOrAwayFromZero),
+            height: (drawnSize.height * scale).rounded(.toNearestOrAwayFromZero)
         )
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         metalLayer.contentsScale = scale
-        metalLayer.position = .zero
-        metalLayer.bounds = CGRect(origin: .zero, size: bounds.size)
-        if updateFillScale(), !isResizePinching, panscanBaseIsFill, !panscanSwapPending {
-            displayedScale = fillScale
-        }
-        metalLayer.transform = resizeTransform(
-            scale: displayedScale / (panscanBaseIsFill ? fillScale : 1)
+        metalLayer.position = CGPoint(
+            x: (bounds.width - layerSize.width) / 2,
+            y: (bounds.height - layerSize.height) / 2
         )
+        metalLayer.bounds = CGRect(origin: .zero, size: layerSize)
+        // Rotation changes the scale that fill needs.
+        if !isResizePinching, !panscanSwapPending, metalLayer.animation(forKey: Self.resizeAnimationKey) == nil {
+            displayedScale = resizeTargetIsFill ? fillScale : 1
+        }
+        metalLayer.transform = resizeTransform(scale: displayedScale / layerBaseScale)
+        nativeSubtitleView.frame = bounds
         pictureInPictureController?.displayLayer.frame = bounds
         let drawableSizeChanged = drawableSize != lastAppliedDrawableSize
         if drawableSizeChanged {
@@ -575,6 +602,11 @@ final class MPVPlayerViewController: UIViewController {
         mpv_observe_property(mpv, 0, "seeking", MPV_FORMAT_FLAG)
         mpv_observe_property(mpv, 0, "track-list", MPV_FORMAT_NODE)
         mpv_observe_property(mpv, 0, "aid", MPV_FORMAT_INT64)
+        mpv_observe_property(mpv, Self.subtitleTextObserverID, "sub-text", MPV_FORMAT_STRING)
+        mpv_observe_property(mpv, Self.subtitleGeometryObserverID, "sid", MPV_FORMAT_NONE)
+        mpv_observe_property(mpv, Self.subtitleGeometryObserverID, "dwidth", MPV_FORMAT_NONE)
+        mpv_observe_property(mpv, Self.subtitleGeometryObserverID, "dheight", MPV_FORMAT_NONE)
+        applySubtitleVisibility()
 
         mpv_set_wakeup_callback(mpv, { ctx in
             let vc = unsafeBitCast(ctx, to: MPVPlayerViewController.self)
@@ -917,11 +949,17 @@ final class MPVPlayerViewController: UIViewController {
 
     private static let resizeSettleDuration = 0.28
     private static let resizeAnimationKey = "nuvioResize"
-    /// Picture scale at fill, relative to fit.
-    private var fillScale: CGFloat = 1
     /// Picture scale being shown, relative to fit.
     private var displayedScale: CGFloat = 1
-    /// What mpv has drawn: fit, or cropped to fill by panscan.
+    /// mpv's size of the video, once known.
+    private var videoDisplaySize: CGSize = .zero
+    /// The layer is the size of the filled picture and fit is a shrunken view of it, so the
+    /// picture changes size without mpv. Needs subtitles outside mpv, or they would be cropped.
+    private var hasFillSizedLayer = false
+    /// Whether mpv draws at the resolution of the filled picture. Only matters on a fill-sized
+    /// layer, where fit needs fewer pixels.
+    private var drawableIsFill = false
+    /// What mpv has drawn when its own subtitles are in use: fit, or cropped to fill by panscan.
     private var panscanBaseIsFill = false
     private var panscanSwapPending = false
     private var panscanSwapID = 0
@@ -930,9 +968,23 @@ final class MPVPlayerViewController: UIViewController {
     private var resizeGeneration = 0
     private lazy var resizeHaptic = UIImpactFeedbackGenerator(style: .medium)
 
-    /// mpv needs a full redraw for every panscan change, which cannot follow fingers. So the
-    /// picture moves with a layer transform at the display's refresh rate, and panscan only
-    /// changes once at rest, which keeps the final picture and subtitles sharp.
+    private var screenSize: CGSize { externallyManagedViewSize ?? view.bounds.size }
+
+    /// Picture scale at fill, relative to fit.
+    private var fillScale: CGFloat {
+        let screen = screenSize
+        guard videoDisplaySize.width > 0, videoDisplaySize.height > 0,
+              screen.width > 1, screen.height > 1 else { return 1 }
+        let widthRatio = screen.width / videoDisplaySize.width
+        let heightRatio = screen.height / videoDisplaySize.height
+        return max(widthRatio, heightRatio) / min(widthRatio, heightRatio)
+    }
+
+    /// The scale the layer's own contents already have, relative to fit.
+    private var layerBaseScale: CGFloat {
+        hasFillSizedLayer || panscanBaseIsFill ? fillScale : 1
+    }
+
     func setResize(_ mode: Int) {
         guard mpv != nil else { return }
         setStringProperty("video-unscaled", "no")
@@ -943,19 +995,29 @@ final class MPVPlayerViewController: UIViewController {
         resizeGeneration &+= 1
         let generation = resizeGeneration
 
-        guard updateFillScale() else {
+        guard videoDisplaySize.width > 0, videoDisplaySize.height > 0 else {
             // No video yet, so there is nothing to animate.
-            fillScale = 1
             displayedScale = 1
             panscanSwapID &+= 1
             panscanSwapPending = false
             panscanBaseIsFill = fill
+            drawableIsFill = fill
             setPanscan(fill ? 1 : 0)
-            applyResizeTransform()
+            layoutMetalLayer()
             return
         }
-        if panscanBaseIsFill && !panscanSwapPending { displayedScale = fillScale }
 
+        if hasFillSizedLayer {
+            animateResizeScale(to: fill ? fillScale : 1) { [weak self] in
+                guard let self, self.resizeGeneration == generation else { return }
+                // Same picture on screen, so this only changes how sharp it is.
+                self.drawableIsFill = fill
+                self.layoutMetalLayer()
+            }
+            return
+        }
+
+        if panscanBaseIsFill && !panscanSwapPending { displayedScale = fillScale }
         // Every animation runs from the fit picture, so the whole video is available to show.
         requestPanscanBase(fill: false) { [weak self] in
             guard let self, self.resizeGeneration == generation else { return }
@@ -972,9 +1034,10 @@ final class MPVPlayerViewController: UIViewController {
             isResizePinching = true
             resizeGeneration &+= 1
             metalLayer.removeAnimation(forKey: Self.resizeAnimationKey)
-            _ = updateFillScale()
             resizeHaptic.prepare()
-            requestPanscanBase(fill: false) {}
+            if !hasFillSizedLayer {
+                requestPanscanBase(fill: false) {}
+            }
         }
         displayedScale = 1 + (fillScale - 1) * CGFloat(min(max(fraction, 0), 1))
         applyResizeTransform()
@@ -985,16 +1048,38 @@ final class MPVPlayerViewController: UIViewController {
         resizeHaptic.prepare()
     }
 
-    @discardableResult
-    private func updateFillScale() -> Bool {
-        let videoWidth = CGFloat(getInt("dwidth"))
-        let videoHeight = CGFloat(getInt("dheight"))
-        let size = metalLayer.bounds.size
-        guard videoWidth > 0, videoHeight > 0, size.width > 1, size.height > 1 else { return false }
-        let widthRatio = size.width / videoWidth
-        let heightRatio = size.height / videoHeight
-        fillScale = max(widthRatio, heightRatio) / min(widthRatio, heightRatio)
-        return true
+    /// Chooses who draws subtitles and the matching video layer. Styled and image subtitles
+    /// stay with mpv, since only it can position and paint them.
+    private func refreshSubtitleAndVideoGeometry() {
+        guard mpv != nil else { return }
+        let videoSize = CGSize(width: getInt("dwidth"), height: getInt("dheight"))
+        if videoSize.width > 0, videoSize.height > 0 {
+            videoDisplaySize = videoSize
+        }
+        let codec = getString("current-tracks/sub/codec")?.lowercased()
+        usesMpvSubtitles = codec.map { !Self.nativeSubtitleCodecs.contains($0) } ?? false
+        applySubtitleVisibility()
+
+        let wantsFillSizedLayer = !usesMpvSubtitles && videoDisplaySize.width > 0
+        if wantsFillSizedLayer != hasFillSizedLayer {
+            resizeGeneration &+= 1
+            panscanSwapID &+= 1
+            panscanSwapPending = false
+            isResizePinching = false
+            metalLayer.removeAnimation(forKey: Self.resizeAnimationKey)
+            hasFillSizedLayer = wantsFillSizedLayer
+            panscanBaseIsFill = !wantsFillSizedLayer && resizeTargetIsFill
+            drawableIsFill = resizeTargetIsFill
+            setPanscan(panscanBaseIsFill ? 1 : 0)
+        }
+        layoutMetalLayer()
+    }
+
+    /// Picture in Picture shows mpv's frames only, so mpv draws the subtitles there.
+    private func applySubtitleVisibility() {
+        let mpvDraws = usesMpvSubtitles || metalLayer.nuvioPiPConsumesVideo
+        setSubtitleOption("sub-visibility", mpvDraws ? "yes" : "no")
+        nativeSubtitleView.isHidden = mpvDraws
     }
 
     private func resizeTransform(scale: CGFloat) -> CATransform3D {
@@ -1005,15 +1090,14 @@ final class MPVPlayerViewController: UIViewController {
     }
 
     private func applyResizeTransform() {
-        let scale = displayedScale / (panscanBaseIsFill ? fillScale : 1)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        metalLayer.transform = resizeTransform(scale: scale)
+        metalLayer.transform = resizeTransform(scale: displayedScale / layerBaseScale)
         CATransaction.commit()
     }
 
     private func animateResizeScale(to scale: CGFloat, completion: @escaping () -> Void) {
-        let target = resizeTransform(scale: scale)
+        let target = resizeTransform(scale: scale / layerBaseScale)
         let animation = CABasicAnimation(keyPath: "transform")
         animation.fromValue = NSValue(caTransform3D: metalLayer.transform)
         animation.toValue = NSValue(caTransform3D: target)
@@ -1200,6 +1284,20 @@ final class MPVPlayerViewController: UIViewController {
         setSubtitleOption("sub-pos", String(subPos))
         setSubtitleOption("sub-filter-sdh", stripSdh ? "yes" : "no")
         setSubtitleOption("sub-filter-sdh-harder", stripSdh ? "yes" : "no")
+
+        var nativeStyle = NativeSubtitleView.Style()
+        nativeStyle.textColor = UIColor(mpvColor: textColor) ?? .white
+        nativeStyle.backgroundColor = UIColor(mpvColor: backgroundColor) ?? .clear
+        nativeStyle.outlineColor = UIColor(mpvColor: outlineColor) ?? .black
+        nativeStyle.outlineSize = CGFloat(outlineSize)
+        nativeStyle.bold = bold
+        nativeStyle.fontSize = CGFloat(fontSize)
+        nativeStyle.bottomPercent = CGFloat(subPos)
+        nativeStyle.fontFamily = fontFamily
+        nativeStyle.shadowColor = UIColor(mpvColor: shadowColor) ?? .black
+        nativeStyle.shadowOffset = CGFloat(shadowOffset)
+        nativeStyle.shadowBlur = CGFloat(shadowBlur)
+        nativeSubtitleView.style = nativeStyle
     }
 
     func destroyPlayer() {
@@ -1498,11 +1596,26 @@ final class MPVPlayerViewController: UIViewController {
 
                 switch eventPtr.pointee.event_id {
                 case MPV_EVENT_PROPERTY_CHANGE:
-                    DispatchQueue.main.async { self.updateState() }
+                    if eventPtr.pointee.reply_userdata == Self.subtitleTextObserverID {
+                        var text = ""
+                        if let data = eventPtr.pointee.data {
+                            let property = UnsafePointer<mpv_event_property>(OpaquePointer(data)).pointee
+                            if property.format == MPV_FORMAT_STRING,
+                               let value = property.data?.assumingMemoryBound(to: UnsafePointer<CChar>?.self).pointee {
+                                text = String(cString: value)
+                            }
+                        }
+                        DispatchQueue.main.async { self.nativeSubtitleView.text = text }
+                    } else if eventPtr.pointee.reply_userdata == Self.subtitleGeometryObserverID {
+                        DispatchQueue.main.async { self.refreshSubtitleAndVideoGeometry() }
+                    } else {
+                        DispatchQueue.main.async { self.updateState() }
+                    }
                 case MPV_EVENT_FILE_LOADED:
                     DispatchQueue.main.async {
                         self.clearPlaybackError()
                         self.isPlayerLoading = false
+                        self.refreshSubtitleAndVideoGeometry()
                         self.updateState()
                         self.publishNowPlayingForPlaybackSession()
                         self.logCurrentAudioOutput()
