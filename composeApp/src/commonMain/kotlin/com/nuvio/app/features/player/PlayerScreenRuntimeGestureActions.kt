@@ -29,6 +29,7 @@ internal data class PlayerSurfaceGestureCallbacks(
     val isResizeFilled: State<Boolean>,
     val previewResizeFill: State<(Float) -> Unit>,
     val finishResizePinch: State<(Boolean) -> Unit>,
+    val playResizeHaptic: State<() -> Unit>,
     val playerControlsLocked: State<Boolean>,
     val currentPositionMs: State<Long>,
     val currentDurationMs: State<Long>,
@@ -272,6 +273,10 @@ internal fun PlayerScreenRuntime.previewResizeFill(fraction: Float) {
     playerController?.previewResizeFill(fraction)
 }
 
+internal fun PlayerScreenRuntime.playResizeHaptic() {
+    playerController?.playResizeHaptic()
+}
+
 internal fun PlayerScreenRuntime.finishResizePinch(fill: Boolean) {
     if ((resizeMode != PlayerResizeMode.Fit) != fill) {
         val nextMode = if (fill) PlayerResizeMode.Fill else PlayerResizeMode.Fit
@@ -372,6 +377,7 @@ internal fun PlayerScreenRuntime.rememberSurfaceGestureCallbacks(): PlayerSurfac
         isResizeFilled = rememberUpdatedState(resizeMode != PlayerResizeMode.Fit),
         previewResizeFill = rememberUpdatedState(::previewResizeFill),
         finishResizePinch = rememberUpdatedState(::finishResizePinch),
+        playResizeHaptic = rememberUpdatedState(::playResizeHaptic),
         playerControlsLocked = rememberUpdatedState(playerControlsLocked),
         currentPositionMs = rememberUpdatedState(playbackSnapshot.positionMs.coerceAtLeast(0L)),
         currentDurationMs = rememberUpdatedState(playbackSnapshot.durationMs),

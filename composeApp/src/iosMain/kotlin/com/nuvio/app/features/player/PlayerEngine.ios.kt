@@ -275,6 +275,10 @@ actual fun PlatformPlayerSurface(
                 bridge.previewResizeFill(fraction)
             }
 
+            override fun playResizeHaptic() {
+                bridge.playResizeHaptic()
+            }
+
             override fun settleResizeMode(mode: PlayerResizeMode) {
                 bridge.setResizeMode(mode.ordinal)
             }

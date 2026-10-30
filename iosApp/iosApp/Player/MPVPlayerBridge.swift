@@ -116,6 +116,7 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
     func setMuted(muted: Bool) { playerVC?.setMuted(muted) }
     func setResizeMode(mode: Int32) { playerVC?.setResize(Int(mode)) }
     func previewResizeFill(fraction: Float) { playerVC?.previewResizeFill(fraction) }
+    func playResizeHaptic() { playerVC?.playResizeHaptic() }
     func syncVideoSurfaceLayout(width: Double, height: Double) {
         playerVC?.syncVideoSurfaceLayout(size: CGSize(width: width, height: height))
     }
@@ -363,6 +364,7 @@ final class MPVPlayerViewController: UIViewController {
         let pip = PlayerPictureInPictureController(owner: self, metalLayer: metalLayer)
         pictureInPictureController = pip
         view.layer.addSublayer(pip.displayLayer)
+        view.layer.masksToBounds = true
         view.layer.addSublayer(metalLayer)
         layoutMetalLayer()
 
@@ -505,6 +507,12 @@ final class MPVPlayerViewController: UIViewController {
         metalLayer.contentsScale = scale
         metalLayer.position = .zero
         metalLayer.bounds = CGRect(origin: .zero, size: bounds.size)
+        if updateFillScale(), !isResizePinching, panscanBaseIsFill, !panscanSwapPending {
+            displayedScale = fillScale
+        }
+        metalLayer.transform = resizeTransform(
+            scale: displayedScale / (panscanBaseIsFill ? fillScale : 1)
+        )
         pictureInPictureController?.displayLayer.frame = bounds
         let drawableSizeChanged = drawableSize != lastAppliedDrawableSize
         if drawableSizeChanged {
@@ -907,60 +915,156 @@ final class MPVPlayerViewController: UIViewController {
         setFlag("mute", muted)
     }
 
-    private static let panscanAnimationDuration = 0.25
-    private var panscan = 0.0
-    private var panscanTarget: Double? = 0.0
-    private var panscanAnimationStart = 0.0
-    private var panscanAnimationFrom = 0.0
-    private var panscanAnimationLink: CADisplayLink?
+    private static let resizeSettleDuration = 0.28
+    private static let resizeAnimationKey = "nuvioResize"
+    /// Picture scale at fill, relative to fit.
+    private var fillScale: CGFloat = 1
+    /// Picture scale being shown, relative to fit.
+    private var displayedScale: CGFloat = 1
+    /// What mpv has drawn: fit, or cropped to fill by panscan.
+    private var panscanBaseIsFill = false
+    private var panscanSwapPending = false
+    private var panscanSwapID = 0
+    private var resizeTargetIsFill = false
+    private var isResizePinching = false
+    private var resizeGeneration = 0
+    private lazy var resizeHaptic = UIImpactFeedbackGenerator(style: .medium)
 
-    /// Fill and Zoom both crop with panscan. Animating panscan rather than the view keeps
-    /// subtitles sharp and in place while the picture grows.
+    /// mpv needs a full redraw for every panscan change, which cannot follow fingers. So the
+    /// picture moves with a layer transform at the display's refresh rate, and panscan only
+    /// changes once at rest, which keeps the final picture and subtitles sharp.
     func setResize(_ mode: Int) {
         guard mpv != nil else { return }
         setStringProperty("video-unscaled", "no")
-        animatePanscan(to: mode == 0 ? 0.0 : 1.0)
+        let fill = mode != 0
+        guard isResizePinching || fill != resizeTargetIsFill else { return }
+        isResizePinching = false
+        resizeTargetIsFill = fill
+        resizeGeneration &+= 1
+        let generation = resizeGeneration
+
+        guard updateFillScale() else {
+            // No video yet, so there is nothing to animate.
+            fillScale = 1
+            displayedScale = 1
+            panscanSwapID &+= 1
+            panscanSwapPending = false
+            panscanBaseIsFill = fill
+            setPanscan(fill ? 1 : 0)
+            applyResizeTransform()
+            return
+        }
+        if panscanBaseIsFill && !panscanSwapPending { displayedScale = fillScale }
+
+        // Every animation runs from the fit picture, so the whole video is available to show.
+        requestPanscanBase(fill: false) { [weak self] in
+            guard let self, self.resizeGeneration == generation else { return }
+            self.animateResizeScale(to: fill ? self.fillScale : 1) { [weak self] in
+                guard let self, self.resizeGeneration == generation, fill else { return }
+                self.requestPanscanBase(fill: true) {}
+            }
+        }
     }
 
     func previewResizeFill(_ fraction: Float) {
         guard mpv != nil else { return }
-        stopPanscanAnimation()
-        panscanTarget = nil
-        setPanscan(Double(min(max(fraction, 0), 1)))
+        if !isResizePinching {
+            isResizePinching = true
+            resizeGeneration &+= 1
+            metalLayer.removeAnimation(forKey: Self.resizeAnimationKey)
+            _ = updateFillScale()
+            resizeHaptic.prepare()
+            requestPanscanBase(fill: false) {}
+        }
+        displayedScale = 1 + (fillScale - 1) * CGFloat(min(max(fraction, 0), 1))
+        applyResizeTransform()
     }
 
-    private func animatePanscan(to target: Double) {
-        guard panscanTarget != target else { return }
-        stopPanscanAnimation()
-        panscanTarget = target
-        panscanAnimationFrom = panscan
-        panscanAnimationStart = CACurrentMediaTime()
-        let link = CADisplayLink(target: self, selector: #selector(stepPanscanAnimation(_:)))
-        link.add(to: .main, forMode: .common)
-        panscanAnimationLink = link
+    func playResizeHaptic() {
+        resizeHaptic.impactOccurred()
+        resizeHaptic.prepare()
     }
 
-    @objc private func stepPanscanAnimation(_ link: CADisplayLink) {
-        guard mpv != nil, let target = panscanTarget else {
-            stopPanscanAnimation()
+    @discardableResult
+    private func updateFillScale() -> Bool {
+        let videoWidth = CGFloat(getInt("dwidth"))
+        let videoHeight = CGFloat(getInt("dheight"))
+        let size = metalLayer.bounds.size
+        guard videoWidth > 0, videoHeight > 0, size.width > 1, size.height > 1 else { return false }
+        let widthRatio = size.width / videoWidth
+        let heightRatio = size.height / videoHeight
+        fillScale = max(widthRatio, heightRatio) / min(widthRatio, heightRatio)
+        return true
+    }
+
+    private func resizeTransform(scale: CGFloat) -> CATransform3D {
+        let bounds = metalLayer.bounds
+        var transform = CATransform3DMakeTranslation(bounds.midX, bounds.midY, 0)
+        transform = CATransform3DScale(transform, scale, scale, 1)
+        return CATransform3DTranslate(transform, -bounds.midX, -bounds.midY, 0)
+    }
+
+    private func applyResizeTransform() {
+        let scale = displayedScale / (panscanBaseIsFill ? fillScale : 1)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        metalLayer.transform = resizeTransform(scale: scale)
+        CATransaction.commit()
+    }
+
+    private func animateResizeScale(to scale: CGFloat, completion: @escaping () -> Void) {
+        let target = resizeTransform(scale: scale)
+        let animation = CABasicAnimation(keyPath: "transform")
+        animation.fromValue = NSValue(caTransform3D: metalLayer.transform)
+        animation.toValue = NSValue(caTransform3D: target)
+        animation.duration = Self.resizeSettleDuration
+        animation.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.25, 1)
+        if #available(iOS 15.0, *) {
+            animation.preferredFrameRateRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
+        }
+        displayedScale = scale
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        CATransaction.setCompletionBlock(completion)
+        metalLayer.transform = target
+        metalLayer.add(animation, forKey: Self.resizeAnimationKey)
+        CATransaction.commit()
+    }
+
+    /// Changes what mpv draws, and swaps the layer transform when its new frame starts so the
+    /// picture on screen stays the same size.
+    private func requestPanscanBase(fill: Bool, then: @escaping () -> Void) {
+        guard panscanBaseIsFill != fill || panscanSwapPending else {
+            then()
             return
         }
-        let progress = min((CACurrentMediaTime() - panscanAnimationStart) / Self.panscanAnimationDuration, 1)
-        let eased = 1 - pow(1 - progress, 3)
-        setPanscan(panscanAnimationFrom + (target - panscanAnimationFrom) * eased)
-        if progress >= 1 { stopPanscanAnimation() }
-    }
+        panscanSwapPending = true
+        panscanSwapID &+= 1
+        let swapID = panscanSwapID
+        setPanscan(fill ? 1 : 0)
 
-    private func stopPanscanAnimation() {
-        panscanAnimationLink?.invalidate()
-        panscanAnimationLink = nil
+        let finish = { [weak self] in
+            guard let self, self.panscanSwapPending, self.panscanSwapID == swapID else { return }
+            self.panscanSwapPending = false
+            self.panscanBaseIsFill = fill
+            self.applyResizeTransform()
+            then()
+        }
+        // While playing, the next frame may have started before mpv saw the change.
+        var framesToWait = isPlayerPlaying ? 2 : 1
+        func awaitFrame() {
+            metalLayer.observeNextAcquiredDrawable {
+                framesToWait -= 1
+                if framesToWait <= 0 { finish() } else { awaitFrame() }
+            }
+        }
+        awaitFrame()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: finish)
     }
 
     private func setPanscan(_ value: Double) {
         guard mpv != nil else { return }
-        panscan = value
         var data = value
-        // Async so the pinch never waits on the playback thread.
         checkError(mpv_set_property_async(mpv, 0, "panscan", MPV_FORMAT_DOUBLE, &data))
     }
 
@@ -1099,7 +1203,9 @@ final class MPVPlayerViewController: UIViewController {
     }
 
     func destroyPlayer() {
-        stopPanscanAnimation()
+        resizeGeneration &+= 1
+        panscanSwapID &+= 1
+        metalLayer.removeAnimation(forKey: Self.resizeAnimationKey)
         pictureInPictureController?.invalidate()
         pictureInPictureController = nil
         NotificationCenter.default.removeObserver(self)

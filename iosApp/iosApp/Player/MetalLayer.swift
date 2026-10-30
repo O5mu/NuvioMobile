@@ -9,6 +9,14 @@ class MetalLayer: CAMetalLayer {
     private var consumesVideo = false
     private var presentationGeneration: UInt = 0
     private var presentationObserver: (generation: UInt, callback: (TimeInterval) -> Void)?
+    private var acquireObserver: (() -> Void)?
+
+    /// Calls back on the main thread when mpv starts its next frame.
+    func observeNextAcquiredDrawable(_ callback: @escaping () -> Void) {
+        pictureInPictureLock.lock()
+        acquireObserver = callback
+        pictureInPictureLock.unlock()
+    }
 
     func observeNextPresentedDrawable(_ callback: @escaping (TimeInterval) -> Void) {
         pictureInPictureLock.lock()
@@ -27,7 +35,10 @@ class MetalLayer: CAMetalLayer {
     override func nextDrawable() -> CAMetalDrawable? {
         pictureInPictureLock.lock()
         let generation = presentationObserver?.generation
+        let acquired = acquireObserver
+        acquireObserver = nil
         pictureInPictureLock.unlock()
+        if let acquired { DispatchQueue.main.async(execute: acquired) }
         // Return the same drawable that MoltenVK would normally acquire.
         let drawable = super.nextDrawable()
         guard let drawable, let generation else { return drawable }

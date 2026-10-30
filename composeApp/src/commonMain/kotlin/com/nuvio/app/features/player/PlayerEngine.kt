@@ -10,6 +10,9 @@ interface PlayerEngineController {
     /** Animates the video to [mode] when a pinch ends. */
     fun settleResizeMode(mode: PlayerResizeMode) {}
 
+    /** Plays the tick felt when a pinch crosses the point where it switches stage. */
+    fun playResizeHaptic() {}
+
     val playbackEngine: AndroidPlaybackEngine? get() = null
     fun play()
     fun pause()

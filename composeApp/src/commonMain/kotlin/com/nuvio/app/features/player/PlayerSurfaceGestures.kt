@@ -229,6 +229,7 @@ internal fun Modifier.playerSurfacePinchGestures(
     isResizeFilledState: State<Boolean>,
     previewResizeFillState: State<(Float) -> Unit>,
     finishResizePinchState: State<(Boolean) -> Unit>,
+    playResizeHapticState: State<() -> Unit>,
 ): Modifier =
     pointerInput(playbackGesturesEnabled) {
         if (!playbackGesturesEnabled) return@pointerInput
@@ -243,11 +244,11 @@ internal fun Modifier.playerSurfacePinchGestures(
             var multiTouch = false
             var pinching = false
             var finished = false
+            var switched = false
 
             fun finish() {
                 pinching = false
                 finished = true
-                val switched = abs(fraction - startFraction) >= PlayerPinchCommitFraction
                 finishResizePinchState.value((startFraction > 0f) != switched)
             }
 
@@ -273,6 +274,11 @@ internal fun Modifier.playerSurfacePinchGestures(
                     if (pinching) {
                         fraction = (startFraction + ln(zoom) / ln(PlayerPinchFullScale)).coerceIn(0f, 1f)
                         previewResizeFillState.value(fraction)
+                        val pastSwitchPoint = abs(fraction - startFraction) >= PlayerPinchCommitFraction
+                        if (pastSwitchPoint != switched) {
+                            switched = pastSwitchPoint
+                            playResizeHapticState.value()
+                        }
                     }
                 }
             } finally {

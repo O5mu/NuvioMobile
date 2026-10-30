@@ -169,6 +169,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                 isResizeFilledState = gestureCallbacks.isResizeFilled,
                 previewResizeFillState = gestureCallbacks.previewResizeFill,
                 finishResizePinchState = gestureCallbacks.finishResizePinch,
+                playResizeHapticState = gestureCallbacks.playResizeHaptic,
             ),
     ) {
         val playerSurfaceSourceUrl = if (isP2pPlaybackActive) p2pResolvedSourceUrl else activeSourceUrl
