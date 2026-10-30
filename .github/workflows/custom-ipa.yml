@@ -15,11 +15,10 @@ concurrency:
 jobs:
   build:
     name: Build unsigned Release IPA (${{ matrix.runner }})
-    # Apple Silicon runners are often out of capacity, so the Intel runner builds too.
     strategy:
       fail-fast: false
       matrix:
-        runner: [macos-26, macos-15-intel]
+        runner: [macos-26]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 180
     env:
