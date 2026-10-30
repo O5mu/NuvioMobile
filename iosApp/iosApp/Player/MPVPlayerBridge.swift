@@ -115,6 +115,7 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
     func setPlaybackSpeed(speed: Float) { playerVC?.setSpeed(speed) }
     func setMuted(muted: Bool) { playerVC?.setMuted(muted) }
     func setResizeMode(mode: Int32) { playerVC?.setResize(Int(mode)) }
+    func previewResizeFill(fraction: Float) { playerVC?.previewResizeFill(fraction) }
     func syncVideoSurfaceLayout(width: Double, height: Double) {
         playerVC?.syncVideoSurfaceLayout(size: CGSize(width: width, height: height))
     }
@@ -906,19 +907,61 @@ final class MPVPlayerViewController: UIViewController {
         setFlag("mute", muted)
     }
 
+    private static let panscanAnimationDuration = 0.25
+    private var panscan = 0.0
+    private var panscanTarget: Double? = 0.0
+    private var panscanAnimationStart = 0.0
+    private var panscanAnimationFrom = 0.0
+    private var panscanAnimationLink: CADisplayLink?
+
+    /// Fill and Zoom both crop with panscan. Animating panscan rather than the view keeps
+    /// subtitles sharp and in place while the picture grows.
     func setResize(_ mode: Int) {
         guard mpv != nil else { return }
-        switch mode {
-        case 1: // Fill
-            setStringProperty("panscan", "1.0")
-            setStringProperty("video-unscaled", "no")
-        case 2: // Zoom
-            setStringProperty("panscan", "1.0")
-            setStringProperty("video-unscaled", "no")
-        default: // Fit
-            setStringProperty("panscan", "0.0")
-            setStringProperty("video-unscaled", "no")
+        setStringProperty("video-unscaled", "no")
+        animatePanscan(to: mode == 0 ? 0.0 : 1.0)
+    }
+
+    func previewResizeFill(_ fraction: Float) {
+        guard mpv != nil else { return }
+        stopPanscanAnimation()
+        panscanTarget = nil
+        setPanscan(Double(min(max(fraction, 0), 1)))
+    }
+
+    private func animatePanscan(to target: Double) {
+        guard panscanTarget != target else { return }
+        stopPanscanAnimation()
+        panscanTarget = target
+        panscanAnimationFrom = panscan
+        panscanAnimationStart = CACurrentMediaTime()
+        let link = CADisplayLink(target: self, selector: #selector(stepPanscanAnimation(_:)))
+        link.add(to: .main, forMode: .common)
+        panscanAnimationLink = link
+    }
+
+    @objc private func stepPanscanAnimation(_ link: CADisplayLink) {
+        guard mpv != nil, let target = panscanTarget else {
+            stopPanscanAnimation()
+            return
         }
+        let progress = min((CACurrentMediaTime() - panscanAnimationStart) / Self.panscanAnimationDuration, 1)
+        let eased = 1 - pow(1 - progress, 3)
+        setPanscan(panscanAnimationFrom + (target - panscanAnimationFrom) * eased)
+        if progress >= 1 { stopPanscanAnimation() }
+    }
+
+    private func stopPanscanAnimation() {
+        panscanAnimationLink?.invalidate()
+        panscanAnimationLink = nil
+    }
+
+    private func setPanscan(_ value: Double) {
+        guard mpv != nil else { return }
+        panscan = value
+        var data = value
+        // Async so the pinch never waits on the playback thread.
+        checkError(mpv_set_property_async(mpv, 0, "panscan", MPV_FORMAT_DOUBLE, &data))
     }
 
     // MARK: - Track selection
@@ -1056,6 +1099,7 @@ final class MPVPlayerViewController: UIViewController {
     }
 
     func destroyPlayer() {
+        stopPanscanAnimation()
         pictureInPictureController?.invalidate()
         pictureInPictureController = nil
         NotificationCenter.default.removeObserver(self)

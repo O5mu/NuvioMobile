@@ -26,6 +26,9 @@ internal data class PlayerSurfaceGestureCallbacks(
     val revealLockedOverlay: State<() -> Unit>,
     val isHoldToSpeedGestureActive: State<Boolean>,
     val touchGesturesEnabled: State<Boolean>,
+    val isResizeFilled: State<Boolean>,
+    val previewResizeFill: State<(Float) -> Unit>,
+    val finishResizePinch: State<(Boolean) -> Unit>,
     val playerControlsLocked: State<Boolean>,
     val currentPositionMs: State<Long>,
     val currentDurationMs: State<Long>,
@@ -265,6 +268,21 @@ internal fun PlayerScreenRuntime.cycleResizeMode() {
     controlsVisible = true
 }
 
+internal fun PlayerScreenRuntime.previewResizeFill(fraction: Float) {
+    playerController?.previewResizeFill(fraction)
+}
+
+internal fun PlayerScreenRuntime.finishResizePinch(fill: Boolean) {
+    if ((resizeMode != PlayerResizeMode.Fit) != fill) {
+        val nextMode = if (fill) PlayerResizeMode.Fill else PlayerResizeMode.Fit
+        resizeMode = nextMode
+        lastSyncedSettingsResizeMode = nextMode
+        PlayerSettingsRepository.setResizeMode(nextMode)
+        showGestureMessage(if (fill) resizeModeFillLabel else resizeModeFitLabel)
+    }
+    playerController?.settleResizeMode(resizeMode)
+}
+
 internal fun PlayerScreenRuntime.cyclePlaybackSpeed() {
     if (partyBlocksControl()) return
     val speeds = listOf(1f, 1.25f, 1.5f, 2f)
@@ -351,6 +369,9 @@ internal fun PlayerScreenRuntime.rememberSurfaceGestureCallbacks(): PlayerSurfac
         revealLockedOverlay = rememberUpdatedState(::revealLockedOverlay),
         isHoldToSpeedGestureActive = rememberUpdatedState(isHoldToSpeedGestureActive),
         touchGesturesEnabled = rememberUpdatedState(playerSettingsUiState.touchGesturesEnabled),
+        isResizeFilled = rememberUpdatedState(resizeMode != PlayerResizeMode.Fit),
+        previewResizeFill = rememberUpdatedState(::previewResizeFill),
+        finishResizePinch = rememberUpdatedState(::finishResizePinch),
         playerControlsLocked = rememberUpdatedState(playerControlsLocked),
         currentPositionMs = rememberUpdatedState(playbackSnapshot.positionMs.coerceAtLeast(0L)),
         currentDurationMs = rememberUpdatedState(playbackSnapshot.durationMs),

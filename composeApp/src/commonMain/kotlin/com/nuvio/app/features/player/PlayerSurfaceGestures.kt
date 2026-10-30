@@ -2,13 +2,17 @@ package com.nuvio.app.features.player
 
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroidSize
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.runtime.State
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntSize
 import kotlin.math.abs
+import kotlin.math.ln
 import kotlin.math.roundToLong
 
 internal fun Modifier.playerSurfaceTapGestures(
@@ -103,9 +107,15 @@ internal fun Modifier.playerSurfaceDragGestures(
             var verticalGestureActivationDy = 0f
             val horizontalSeekBaselineMs = currentPositionMsState.value
             var horizontalSeekPreviewMs = horizontalSeekBaselineMs
+            var multiTouch = false
 
             while (true) {
                 val event = awaitPointerEvent()
+                // A second finger makes this a pinch, so any seek in progress is dropped.
+                if (event.changes.count { it.pressed } > 1) {
+                    multiTouch = true
+                    break
+                }
                 val change = event.changes.firstOrNull { it.id == down.id } ?: break
                 if (!change.pressed) break
 
@@ -193,9 +203,80 @@ internal fun Modifier.playerSurfaceDragGestures(
                 change.consume()
             }
 
-            if (gestureMode == PlayerGestureMode.HorizontalSeek && !isHoldToSpeedGestureActiveState.value) {
+            if (multiTouch) {
+                clearLiveGestureFeedbackState.value()
+            } else if (gestureMode == PlayerGestureMode.HorizontalSeek && !isHoldToSpeedGestureActiveState.value) {
                 commitHorizontalSeekState.value(horizontalSeekPreviewMs)
                 clearLiveGestureFeedbackState.value()
+            }
+        }
+    }
+
+/** Pinching this far apart (or the same ratio together) moves all the way between fit and fill. */
+private const val PlayerPinchFullScale = 1.5f
+
+/** How far a pinch must travel to switch stage; anything less springs back on release. */
+private const val PlayerPinchCommitFraction = 0.25f
+
+/**
+ * Two fingers move the video between fit and fill. Runs in the initial pass and consumes
+ * every change once a second finger lands, so taps, hold-to-speed and drags stand down.
+ */
+internal fun Modifier.playerSurfacePinchGestures(
+    playbackGesturesEnabled: Boolean,
+    playerControlsLockedState: State<Boolean>,
+    touchGesturesEnabledState: State<Boolean>,
+    isResizeFilledState: State<Boolean>,
+    previewResizeFillState: State<(Float) -> Unit>,
+    finishResizePinchState: State<(Boolean) -> Unit>,
+): Modifier =
+    pointerInput(playbackGesturesEnabled) {
+        if (!playbackGesturesEnabled) return@pointerInput
+        awaitEachGesture {
+            awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            if (playerControlsLockedState.value || !touchGesturesEnabledState.value) {
+                return@awaitEachGesture
+            }
+            val startFraction = if (isResizeFilledState.value) 1f else 0f
+            var fraction = startFraction
+            var zoom = 1f
+            var multiTouch = false
+            var pinching = false
+            var finished = false
+
+            fun finish() {
+                pinching = false
+                finished = true
+                val switched = abs(fraction - startFraction) >= PlayerPinchCommitFraction
+                finishResizePinchState.value((startFraction > 0f) != switched)
+            }
+
+            try {
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    val pressedCount = event.changes.count { it.pressed }
+                    if (pressedCount == 0) break
+                    if (pressedCount >= 2) multiTouch = true
+                    if (!multiTouch) continue
+                    event.changes.forEach { it.consume() }
+
+                    if (pressedCount < 2) {
+                        if (pinching) finish()
+                        continue
+                    }
+                    if (finished) continue
+
+                    zoom *= event.calculateZoom()
+                    if (!pinching) {
+                        pinching = abs(1f - zoom) * event.calculateCentroidSize() > viewConfiguration.touchSlop
+                    }
+                    if (pinching) {
+                        fraction = (startFraction + ln(zoom) / ln(PlayerPinchFullScale)).coerceIn(0f, 1f)
+                        previewResizeFillState.value(fraction)
+                    }
+                }
+            } finally {
+                if (pinching) finish()
             }
         }
     }

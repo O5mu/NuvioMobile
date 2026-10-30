@@ -4,6 +4,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 
 interface PlayerEngineController {
+    /** Shows the video part way between fit (0) and fill (1) while a pinch is in progress. */
+    fun previewResizeFill(fraction: Float) {}
+
+    /** Animates the video to [mode] when a pinch ends. */
+    fun settleResizeMode(mode: PlayerResizeMode) {}
+
     val playbackEngine: AndroidPlaybackEngine? get() = null
     fun play()
     fun pause()

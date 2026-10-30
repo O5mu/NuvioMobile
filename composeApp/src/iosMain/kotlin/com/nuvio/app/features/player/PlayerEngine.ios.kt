@@ -271,6 +271,14 @@ actual fun PlatformPlayerSurface(
                 bridge.clearExternalSubtitleAndSelect(trackId)
             }
 
+            override fun previewResizeFill(fraction: Float) {
+                bridge.previewResizeFill(fraction)
+            }
+
+            override fun settleResizeMode(mode: PlayerResizeMode) {
+                bridge.setResizeMode(mode.ordinal)
+            }
+
             override fun setSubtitleDelayMs(delayMs: Int) {
                 bridge.setSubtitleDelayMs(delayMs.coerceIn(SUBTITLE_DELAY_MIN_MS, SUBTITLE_DELAY_MAX_MS))
             }
