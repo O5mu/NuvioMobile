@@ -111,7 +111,7 @@ import nuvio.composeapp.generated.resources.settings_tracking_approval_redirect
 import nuvio.composeapp.generated.resources.settings_tracking_disconnect_description
 import nuvio.composeapp.generated.resources.settings_tracking_disconnect_title
 import nuvio.composeapp.generated.resources.settings_tracking_not_connected
-import nuvio.composeapp.generated.resources.settings_trakt_approval_redirect
+import nuvio.composeapp.generated.resources.settings_trakt_approval_device
 import nuvio.composeapp.generated.resources.settings_trakt_connect
 import nuvio.composeapp.generated.resources.settings_trakt_connected_as
 import nuvio.composeapp.generated.resources.settings_trakt_default_user
