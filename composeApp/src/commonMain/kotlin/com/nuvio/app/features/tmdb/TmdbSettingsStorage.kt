@@ -31,6 +31,10 @@ internal expect object TmdbSettingsStorage {
     fun saveUseMoreLikeThis(enabled: Boolean)
     fun loadUseCollections(): Boolean?
     fun saveUseCollections(enabled: Boolean)
+    fun loadCinemetaEnabled(): Boolean?
+    fun saveCinemetaEnabled(enabled: Boolean)
+    fun loadPreferMetaAddon(): Boolean?
+    fun savePreferMetaAddon(enabled: Boolean)
     fun exportToSyncPayload(): JsonObject
     fun replaceFromSyncPayload(payload: JsonObject)
 }

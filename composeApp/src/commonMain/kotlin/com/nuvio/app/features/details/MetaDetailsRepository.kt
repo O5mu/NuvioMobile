@@ -26,7 +26,9 @@ import com.nuvio.app.features.trakt.TraktRelatedRepository
 import com.nuvio.app.features.trakt.MoreLikeThisSourcePreference
 import com.nuvio.app.features.tracking.TrackingSettingsRepository
 import com.nuvio.app.features.trakt.shouldUseTraktMoreLikeThis
+import com.nuvio.app.features.watched.WatchedRepository
 import com.nuvio.app.features.watchprogress.CurrentDateProvider
+import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -126,60 +128,17 @@ object MetaDetailsRepository {
 
         scope.launch {
             val metaLookupId = resolveMetaLookupId(itemId = id, itemType = type)
-            val cinemetaMeta = withContext(Dispatchers.Default) {
-                tryFetchCinemetaMeta(type, metaLookupId)
-            }
-            if (cinemetaMeta != null) {
+            val result = withContext(Dispatchers.Default) { resolveMeta(type, metaLookupId) }
+            if (result != null) {
                 publishLoadedMeta(
                     requestKey = requestKey,
-                    meta = cinemetaMeta,
+                    meta = result,
                     fallbackItemId = metaLookupId,
                     fallbackItemType = type,
                     mdbListSettings = mdbListSettings,
                     metaScreenSettingsFingerprint = metaScreenSettingsFingerprint,
                 )
                 return@launch
-            }
-
-            val manifests = findReadyMetaManifests(type = type, id = metaLookupId)
-
-            if (manifests.isEmpty()) {
-                val tmdbMeta = tryFetchTmdbFallbackMeta(type = type, id = id)
-                if (tmdbMeta != null) {
-                    publishLoadedMeta(
-                        requestKey = requestKey,
-                        meta = tmdbMeta,
-                        fallbackItemId = id,
-                        fallbackItemType = type,
-                        mdbListSettings = mdbListSettings,
-                        metaScreenSettingsFingerprint = metaScreenSettingsFingerprint,
-                    )
-                    return@launch
-                }
-
-                log.w { "No addon provides meta for type=$type id=$id" }
-                _uiState.value = MetaDetailsUiState(
-                    errorMessage = getString(Res.string.details_no_addon_meta),
-                )
-                activeRequestKey = null
-                return@launch
-            }
-
-            for (manifest in manifests) {
-                val result = withContext(Dispatchers.Default) {
-                    tryFetchMeta(manifest.transportUrl, type, metaLookupId, includeMdbList = false)
-                }
-                if (result != null) {
-                    publishLoadedMeta(
-                        requestKey = requestKey,
-                        meta = result,
-                        fallbackItemId = metaLookupId,
-                        fallbackItemType = type,
-                        mdbListSettings = mdbListSettings,
-                        metaScreenSettingsFingerprint = metaScreenSettingsFingerprint,
-                    )
-                    return@launch
-                }
             }
 
             val tmdbMeta = tryFetchTmdbFallbackMeta(type = type, id = id)
@@ -195,8 +154,12 @@ object MetaDetailsRepository {
                 return@launch
             }
 
+            val noAddon = findReadyMetaManifests(type = type, id = metaLookupId).isEmpty()
+            if (noAddon) log.w { "No addon provides meta for type=$type id=$id" }
             _uiState.value = MetaDetailsUiState(
-                errorMessage = getString(Res.string.details_load_failed_all_addons),
+                errorMessage = getString(
+                    if (noAddon) Res.string.details_no_addon_meta else Res.string.details_load_failed_all_addons,
+                ),
             )
             activeRequestKey = null
         }
@@ -232,25 +195,11 @@ object MetaDetailsRepository {
         }
 
         val metaLookupId = resolveMetaLookupId(itemId = id, itemType = type)
-        tryFetchCinemetaMeta(type, metaLookupId)?.let { result ->
+        resolveMeta(type, metaLookupId)?.let { result ->
             if (cacheResult) {
                 cachedMetaByRequestKey[requestKey] = CachedMetaEntry(baseMeta = result)
             }
             return result
-        }
-
-        val manifests = findReadyMetaManifests(type = type, id = metaLookupId)
-
-        for (manifest in manifests) {
-            val result = withTimeoutOrNull(FETCH_TIMEOUT_MS) {
-                tryFetchMeta(manifest.transportUrl, type, metaLookupId, includeMdbList = false)
-            }
-            if (result != null) {
-                if (cacheResult) {
-                    cachedMetaByRequestKey[requestKey] = CachedMetaEntry(baseMeta = result)
-                }
-                return result
-            }
         }
 
         return tryFetchTmdbFallbackMeta(type = type, id = id)?.also { result ->
@@ -293,22 +242,61 @@ object MetaDetailsRepository {
 
     private const val FETCH_TIMEOUT_MS = 5_000L
     private const val CINEMETA_TIMEOUT_MS = 10_000L
+    private const val ADDON_META_TIMEOUT_MS = 20_000L
     private const val METADATA_PROVIDER_READY_TIMEOUT_MS = 10_000L
     private const val TMDB_ENRICH_TIMEOUT_MS = 5_000L
     private const val MDBLIST_ENRICH_TIMEOUT_MS = 5_000L
     private const val CINEMETA_MANIFEST_URL = "https://v3-cinemeta.strem.io/manifest.json"
     private val CINEMETA_TYPES = setOf("movie", "series")
 
+    private suspend fun resolveMeta(type: String, id: String): MetaDetails? =
+        resolveMetaFromSources(type, id)?.also { meta ->
+            scope.launch {
+                WatchProgressRepository.migrateSingleSeasonEpisodes(meta)
+                WatchedRepository.migrateSingleSeasonEpisodes(meta)
+            }
+        }
+
     /**
      * Same order as Harbor: Cinemeta answers first, and addons only get asked when it has no
-     * poster for the title. It only knows IMDb ids, so anime ids go straight to their addon.
+     * poster for the title. The settings can put addons first or leave Cinemeta as a last resort.
      */
+    private suspend fun resolveMetaFromSources(type: String, id: String): MetaDetails? {
+        val settings = TmdbSettingsRepository.snapshot()
+        val cinemetaFirst = settings.cinemetaEnabled && !settings.preferMetaAddon
+        val cinemetaMeta = if (cinemetaFirst) tryFetchCinemetaMeta(type, id) else null
+        if (!cinemetaMeta?.poster.isNullOrBlank()) return cinemetaMeta
+
+        var addonMeta: MetaDetails? = null
+        for (manifest in findReadyMetaManifests(type = type, id = id).filterNot(::isCinemeta)) {
+            val result = withTimeoutOrNull(ADDON_META_TIMEOUT_MS) {
+                tryFetchMeta(manifest.transportUrl, type, id, includeMdbList = false)
+            } ?: continue
+            if (!result.poster.isNullOrBlank()) return result
+            if (addonMeta == null) addonMeta = result
+        }
+
+        if (cinemetaFirst) return cinemetaMeta ?: addonMeta
+        val fallback = tryFetchCinemetaMeta(type, id)
+        if (addonMeta == null) return fallback
+        if (!settings.cinemetaEnabled || fallback == null) return addonMeta
+        return addonMeta.copy(
+            poster = addonMeta.poster.takeUnless { it.isNullOrBlank() } ?: fallback.poster,
+            background = addonMeta.background.takeUnless { it.isNullOrBlank() } ?: fallback.background,
+            logo = addonMeta.logo.takeUnless { it.isNullOrBlank() } ?: fallback.logo,
+        )
+    }
+
+    /** Cinemeta only knows IMDb ids, so anime ids go straight to their addon. */
     private suspend fun tryFetchCinemetaMeta(type: String, id: String): MetaDetails? {
         if (!id.startsWith("tt") || type !in CINEMETA_TYPES) return null
         return withTimeoutOrNull(CINEMETA_TIMEOUT_MS) {
             tryFetchMeta(CINEMETA_MANIFEST_URL, type, id, includeMdbList = false)
-        }?.takeUnless { it.poster.isNullOrBlank() }
+        }
     }
+
+    private fun isCinemeta(manifest: AddonManifest): Boolean =
+        "cinemeta" in manifest.id.lowercase() || "cinemeta" in manifest.transportUrl.lowercase()
 
     private suspend fun tryFetchMeta(
         manifestUrl: String,
@@ -328,7 +316,7 @@ object MetaDetailsRepository {
             log.d { "Fetching meta from: $url" }
             val payload = fetchAddonResponseText(url)
             log.d { "Raw payload length=${payload.length}, first 500 chars: ${payload.take(500)}" }
-            val result = withAbsoluteEpisodes(MetaDetailsParser.parse(payload))
+            val result = withAbsoluteEpisodes(AnimeEpisodeEnrichment.enrich(MetaDetailsParser.parse(payload), TmdbSettingsRepository.snapshot().language))
             val tmdbEnriched = withTimeoutOrNull(TMDB_ENRICH_TIMEOUT_MS) {
                 TmdbMetadataService.enrichMeta(
                     meta = result,
@@ -370,7 +358,8 @@ object MetaDetailsRepository {
             .associate { (index, video) -> video.id to index + 1 }
         return meta.copy(
             videos = meta.videos.map { video ->
-                video.copy(absoluteEpisode = absoluteById[video.id]?.takeIf { it != video.episode })
+                val absolute = video.absoluteEpisode ?: absoluteById[video.id]
+                video.copy(absoluteEpisode = absolute?.takeIf { it != (video.imdbEpisode ?: video.episode) })
             },
         )
     }

@@ -2,6 +2,17 @@ package com.nuvio.app.features.details
 
 internal const val SPECIALS_SEASON_NUMBER = 0
 
+/**
+ * The video that S1 E[episode] became on a title once listed as one long season, or null when the
+ * title still has that episode.
+ */
+internal fun List<MetaVideo>.videoForSingleSeasonEpisode(episode: Int): MetaVideo? {
+    if (any { it.season == 1 && it.episode == episode }) return null
+    return filter { normalizeSeasonNumber(it.season) > SPECIALS_SEASON_NUMBER && it.episode != null }
+        .sortedWith(metaVideoSeasonEpisodeComparator)
+        .getOrNull(episode - 1)
+}
+
 internal val metaVideoSeasonEpisodeComparator: Comparator<MetaVideo> =
     compareBy<MetaVideo>(
         { seasonSortKey(it.season) },

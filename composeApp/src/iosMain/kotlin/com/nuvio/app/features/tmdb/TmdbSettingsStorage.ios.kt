@@ -25,6 +25,8 @@ actual object TmdbSettingsStorage {
     private const val useSeasonPostersKey = "tmdb_use_season_posters"
     private const val useMoreLikeThisKey = "tmdb_use_more_like_this"
     private const val useCollectionsKey = "tmdb_use_collections"
+    private const val cinemetaEnabledKey = "meta_cinemeta_enabled"
+    private const val preferMetaAddonKey = "meta_prefer_addon"
     private val syncKeys = listOf(
         enabledKey,
         languageKey,
@@ -39,6 +41,8 @@ actual object TmdbSettingsStorage {
         useSeasonPostersKey,
         useMoreLikeThisKey,
         useCollectionsKey,
+        cinemetaEnabledKey,
+        preferMetaAddonKey,
     )
 
     actual fun loadEnabled(): Boolean? = loadBoolean(enabledKey)
@@ -127,6 +131,18 @@ actual object TmdbSettingsStorage {
         saveBoolean(useCollectionsKey, enabled)
     }
 
+    actual fun loadCinemetaEnabled(): Boolean? = loadBoolean(cinemetaEnabledKey)
+
+    actual fun saveCinemetaEnabled(enabled: Boolean) {
+        saveBoolean(cinemetaEnabledKey, enabled)
+    }
+
+    actual fun loadPreferMetaAddon(): Boolean? = loadBoolean(preferMetaAddonKey)
+
+    actual fun savePreferMetaAddon(enabled: Boolean) {
+        saveBoolean(preferMetaAddonKey, enabled)
+    }
+
     private fun loadBoolean(key: String): Boolean? {
         val defaults = NSUserDefaults.standardUserDefaults
         val scopedKey = ProfileScopedKey.of(key)
@@ -155,6 +171,8 @@ actual object TmdbSettingsStorage {
         loadUseSeasonPosters()?.let { put(useSeasonPostersKey, encodeSyncBoolean(it)) }
         loadUseMoreLikeThis()?.let { put(useMoreLikeThisKey, encodeSyncBoolean(it)) }
         loadUseCollections()?.let { put(useCollectionsKey, encodeSyncBoolean(it)) }
+        loadCinemetaEnabled()?.let { put(cinemetaEnabledKey, encodeSyncBoolean(it)) }
+        loadPreferMetaAddon()?.let { put(preferMetaAddonKey, encodeSyncBoolean(it)) }
     }
 
     actual fun replaceFromSyncPayload(payload: JsonObject) {
@@ -175,5 +193,7 @@ actual object TmdbSettingsStorage {
         payload.decodeSyncBoolean(useSeasonPostersKey)?.let(::saveUseSeasonPosters)
         payload.decodeSyncBoolean(useMoreLikeThisKey)?.let(::saveUseMoreLikeThis)
         payload.decodeSyncBoolean(useCollectionsKey)?.let(::saveUseCollections)
+        payload.decodeSyncBoolean(cinemetaEnabledKey)?.let(::saveCinemetaEnabled)
+        payload.decodeSyncBoolean(preferMetaAddonKey)?.let(::savePreferMetaAddon)
     }
 }

@@ -6,6 +6,7 @@ import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.core.tracking.ensureTrackingProvidersRegistered
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.MetaVideo
+import com.nuvio.app.features.details.videoForSingleSeasonEpisode
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.servers.ServerWatched
 import com.nuvio.app.features.tracking.TrackingProviderId
@@ -810,6 +811,32 @@ object WatchedRepository {
                 trackerHistorySync = trackerHistorySync,
                 source = source,
             )
+        }
+    }
+
+    internal fun migrateSingleSeasonEpisodes(meta: MetaDetails) {
+        ensureLoaded()
+        val changed = itemsStore.update { nuvioItems, _, dirtyNuvioKeys, _ ->
+            val moved = nuvioItems.toList().mapNotNull { (key, item) ->
+                val episode = item.episode
+                if (item.id != meta.id || item.season != 1 || episode == null) return@mapNotNull null
+                val target = meta.videos.videoForSingleSeasonEpisode(episode) ?: return@mapNotNull null
+                key to item.copy(season = target.season, episode = target.episode, videoId = target.id)
+            }
+            moved.forEach { (oldKey, item) ->
+                nuvioItems.remove(oldKey)
+                dirtyNuvioKeys.remove(oldKey)
+                val key = watchedItemKey(item.type, item.id, item.season, item.episode)
+                if (key !in nuvioItems) {
+                    nuvioItems[key] = item
+                    dirtyNuvioKeys += key
+                }
+            }
+            moved.isNotEmpty()
+        }
+        if (changed) {
+            publish()
+            persist()
         }
     }
 

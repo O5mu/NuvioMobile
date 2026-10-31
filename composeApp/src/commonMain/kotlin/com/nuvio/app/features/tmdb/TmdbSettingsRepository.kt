@@ -27,6 +27,8 @@ object TmdbSettingsRepository {
     private var useSeasonPosters = true
     private var useMoreLikeThis = true
     private var useCollections = true
+    private var cinemetaEnabled = true
+    private var preferMetaAddon = false
 
     fun ensureLoaded() {
         if (hasLoaded) return
@@ -148,6 +150,26 @@ object TmdbSettingsRepository {
         persist = TmdbSettingsStorage::saveUseCollections,
     )
 
+    fun setCinemetaEnabled(value: Boolean) {
+        setBoolean(
+            current = cinemetaEnabled,
+            next = value,
+            update = { cinemetaEnabled = it },
+            persist = TmdbSettingsStorage::saveCinemetaEnabled,
+        )
+        invalidateMetadata()
+    }
+
+    fun setPreferMetaAddon(value: Boolean) {
+        setBoolean(
+            current = preferMetaAddon,
+            next = value,
+            update = { preferMetaAddon = it },
+            persist = TmdbSettingsStorage::savePreferMetaAddon,
+        )
+        invalidateMetadata()
+    }
+
     private fun setBoolean(
         current: Boolean,
         next: Boolean,
@@ -180,6 +202,8 @@ object TmdbSettingsRepository {
         useSeasonPosters = TmdbSettingsStorage.loadUseSeasonPosters() ?: true
         useMoreLikeThis = TmdbSettingsStorage.loadUseMoreLikeThis() ?: true
         useCollections = TmdbSettingsStorage.loadUseCollections() ?: true
+        cinemetaEnabled = TmdbSettingsStorage.loadCinemetaEnabled() ?: true
+        preferMetaAddon = TmdbSettingsStorage.loadPreferMetaAddon() ?: false
         publish()
         if (wasLoaded && previousApiKey != apiKey) {
             invalidateMetadata()
@@ -202,6 +226,8 @@ object TmdbSettingsRepository {
             useSeasonPosters = useSeasonPosters,
             useMoreLikeThis = useMoreLikeThis,
             useCollections = useCollections,
+            cinemetaEnabled = cinemetaEnabled,
+            preferMetaAddon = preferMetaAddon,
         )
     }
 

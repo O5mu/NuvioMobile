@@ -1130,6 +1130,11 @@
     <string name="settings_tmdb_section_localization">الترجمة والتوطين</string>
     <string name="settings_tmdb_section_modules">الوحدات</string>
     <string name="settings_tmdb_section_title">إثراء بيانات TMDB</string>
+    <string name="settings_metadata_section_title">مصدر البيانات</string>
+    <string name="settings_metadata_cinemeta">استخدام Cinemeta</string>
+    <string name="settings_metadata_cinemeta_description">جلب بيانات الأعمال من Cinemeta. عند إيقافه لا يُستخدم إلا إذا لم تتوفر عند أي إضافة.</string>
+    <string name="settings_metadata_prefer_addon">تفضيل إضافات البيانات</string>
+    <string name="settings_metadata_prefer_addon_description">سؤال الإضافات المثبتة قبل Cinemeta.</string>
     <string name="settings_trakt_approval_redirect">بعد الموافقة، ستتم إعادتك تلقائيًا.</string>
     <string name="settings_trakt_authentication">المصادقة</string>
     <string name="settings_trakt_comments">التعليقات</string>
@@ -1694,6 +1699,7 @@
     <string name="details_status">الحالة</string>
     <string name="details_videos">الفيديوهات</string>
     <string name="details_episode_badge_file">الملف</string>
+    <string name="details_episode_filler">حشو</string>
     <string name="downloads_enqueue_missing_url">لا يتوفر رابط بث مباشر</string>
     <string name="downloads_enqueue_replaced">تم استبدال التنزيل السابق</string>
     <string name="downloads_enqueue_started">بدأ التنزيل</string>

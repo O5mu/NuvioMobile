@@ -1580,8 +1580,12 @@ private fun Int.label(): String =
 private fun MetaVideo.episodeBadge(): String =
     when {
         episode != null || season != null ->
-            localizedSeasonEpisodeCode(seasonNumber = season, episodeNumber = episode).orEmpty() +
-                absoluteEpisode?.let { " • #$it" }.orEmpty()
+            localizedSeasonEpisodeCode(
+                seasonNumber = imdbSeason ?: season,
+                episodeNumber = imdbEpisode ?: episode,
+            ).orEmpty() +
+                absoluteEpisode?.let { " • #$it" }.orEmpty() +
+                if (isFiller) " • " + runBlocking { getString(Res.string.details_episode_filler) } else ""
         else -> runBlocking { getString(Res.string.details_episode_badge_file) }
     }
 

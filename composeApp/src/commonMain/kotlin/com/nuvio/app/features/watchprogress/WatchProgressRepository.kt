@@ -10,6 +10,7 @@ import com.nuvio.app.features.addons.AddonsUiState
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.MetaDetailsRepository
+import com.nuvio.app.features.details.videoForSingleSeasonEpisode
 import com.nuvio.app.features.player.PlayerPlaybackSnapshot
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.servers.ServerItemRef
@@ -1169,6 +1170,28 @@ object WatchProgressRepository {
     ) {
         ensureLoaded()
         upsert(session = session, snapshot = snapshot, persist = true, syncRemote = syncRemote)
+    }
+
+    internal fun migrateSingleSeasonEpisodes(meta: MetaDetails) {
+        ensureLoaded()
+        val moved = localEntriesSnapshot().mapNotNull { entry ->
+            val episode = entry.episodeNumber
+            if (entry.parentMetaId != meta.id || entry.seasonNumber != 1 || episode == null) return@mapNotNull null
+            val target = meta.videos.videoForSingleSeasonEpisode(episode) ?: return@mapNotNull null
+            entry to entry.copy(
+                seasonNumber = target.season,
+                episodeNumber = target.episode,
+                videoId = target.id,
+                progressKey = null,
+            )
+        }
+        if (moved.isEmpty()) return
+        removeStoredLocalEntries(moved.map { (old, _) -> old })
+        moved.forEach { (_, entry) ->
+            if (localEntry(entry.resolvedProgressKey())?.isFresherThan(entry) != true) upsertLocalEntry(entry)
+        }
+        publish()
+        persist()
     }
 
     fun applyExternalProgress(entries: List<WatchProgressEntry>) {

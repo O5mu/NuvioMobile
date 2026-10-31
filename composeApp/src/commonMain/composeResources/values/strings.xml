@@ -1308,6 +1308,11 @@
     <string name="settings_tmdb_section_localization">LOCALIZATION</string>
     <string name="settings_tmdb_section_modules">MODULES</string>
     <string name="settings_tmdb_section_title">TMDB ENRICHMENT</string>
+    <string name="settings_metadata_section_title">METADATA SOURCE</string>
+    <string name="settings_metadata_cinemeta">Use Cinemeta</string>
+    <string name="settings_metadata_cinemeta_description">Load titles from Cinemeta. When off, it is only used if no addon has the title.</string>
+    <string name="settings_metadata_prefer_addon">Prefer metadata addons</string>
+    <string name="settings_metadata_prefer_addon_description">Ask your installed addons before Cinemeta.</string>
     <string name="settings_trakt_approval_redirect">After approval, you will be redirected back automatically.</string>
     <string name="settings_trakt_authentication">AUTHENTICATION</string>
     <string name="settings_trakt_comments">Comments</string>
@@ -1928,6 +1933,7 @@
     <string name="details_status">Status</string>
     <string name="details_videos">Videos</string>
     <string name="details_episode_badge_file">FILE</string>
+    <string name="details_episode_filler">FILLER</string>
     <string name="downloads_enqueue_missing_url">No direct stream link available</string>
     <string name="downloads_enqueue_replaced">Replaced previous download</string>
     <string name="downloads_enqueue_started">Download started</string>

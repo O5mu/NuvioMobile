@@ -57,6 +57,11 @@ import nuvio.composeapp.generated.resources.settings_tmdb_preferred_language_des
 import nuvio.composeapp.generated.resources.settings_tmdb_section_localization
 import nuvio.composeapp.generated.resources.settings_tmdb_section_modules
 import nuvio.composeapp.generated.resources.settings_tmdb_section_title
+import nuvio.composeapp.generated.resources.settings_metadata_cinemeta
+import nuvio.composeapp.generated.resources.settings_metadata_cinemeta_description
+import nuvio.composeapp.generated.resources.settings_metadata_prefer_addon
+import nuvio.composeapp.generated.resources.settings_metadata_prefer_addon_description
+import nuvio.composeapp.generated.resources.settings_metadata_section_title
 import org.jetbrains.compose.resources.stringResource
 
 internal fun LazyListScope.tmdbSettingsContent(
@@ -64,6 +69,31 @@ internal fun LazyListScope.tmdbSettingsContent(
     settings: TmdbSettings,
 ) {
     val enrichmentControlsEnabled = settings.enabled
+
+    item {
+        SettingsSection(
+            title = stringResource(Res.string.settings_metadata_section_title),
+            isTablet = isTablet,
+        ) {
+            SettingsGroup(isTablet = isTablet) {
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.settings_metadata_cinemeta),
+                    description = stringResource(Res.string.settings_metadata_cinemeta_description),
+                    checked = settings.cinemetaEnabled,
+                    isTablet = isTablet,
+                    onCheckedChange = TmdbSettingsRepository::setCinemetaEnabled,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.settings_metadata_prefer_addon),
+                    description = stringResource(Res.string.settings_metadata_prefer_addon_description),
+                    checked = settings.preferMetaAddon,
+                    isTablet = isTablet,
+                    onCheckedChange = TmdbSettingsRepository::setPreferMetaAddon,
+                )
+            }
+        }
+    }
 
     item {
         SettingsSection(
