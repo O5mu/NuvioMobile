@@ -277,6 +277,7 @@ object MetaDetailsRepository {
     private const val ABSOLUTE_NUMBERING_MIN_EPISODES = 100
     private const val CINEMETA_MANIFEST_URL = "https://v3-cinemeta.strem.io/manifest.json"
     private val imdbIdPattern = Regex("^tt\\d+")
+    private val animeIdPrefixes = listOf("kitsu:", "mal:", "anilist:", "anidb:")
     private val imdbSeasonVideosById = mutableMapOf<String, List<MetaVideo>>()
 
     private suspend fun tryFetchMeta(
@@ -333,24 +334,20 @@ object MetaDetailsRepository {
     /**
      * Some metadata addons list long anime as one season (Detective Conan as S1 E1000), but
      * stream addons look episodes up by IMDb season, so tt0131179:1:1000 finds nothing while
-     * tt0131179:29:8 finds the same episode. Such shows take their episode list from Cinemeta.
+     * tt0131179:29:8 finds the same episode. So any show with an IMDb id takes its episode list
+     * from Cinemeta, and the addon's list is only used when Cinemeta has none. Anime ids stay
+     * with their addon, because stream addons look those up by their own numbering.
      */
     private suspend fun withImdbSeasons(meta: MetaDetails): MetaDetails {
         if (meta.type.equals("movie", ignoreCase = true)) return meta
         if (meta.videos.any { it.streams.isNotEmpty() }) return meta
-        val mainEpisodes = meta.videos.filter { normalizeSeasonNumber(it.season) > SPECIALS_SEASON_NUMBER }
-        if (mainEpisodes.size < ABSOLUTE_NUMBERING_MIN_EPISODES) return meta
-        if (mainEpisodes.distinctBy { it.season }.size > 1) return meta
+        if (animeIdPrefixes.any { meta.id.startsWith(it) }) return meta
 
-        val imdbId = listOfNotNull(meta.imdbId, meta.id, meta.videos.first().id)
+        val imdbId = listOfNotNull(meta.imdbId, meta.id, meta.videos.firstOrNull()?.id)
             .firstNotNullOfOrNull { imdbIdPattern.find(it)?.value }
             ?: return meta
-        val imdbVideos = fetchImdbSeasonVideos(imdbId) ?: return meta
-        val imdbMainEpisodes = imdbVideos.filter { normalizeSeasonNumber(it.season) > SPECIALS_SEASON_NUMBER }
-        // The IMDb id may cover a different scope than this entry, so the lists must roughly agree.
-        val isSameShow = imdbMainEpisodes.distinctBy { it.season }.size > 1 &&
-            imdbMainEpisodes.size * 2 >= mainEpisodes.size
-        return if (isSameShow) meta.copy(videos = imdbVideos) else meta
+        val imdbVideos = fetchImdbSeasonVideos(imdbId)?.takeIf { it.isNotEmpty() } ?: return meta
+        return meta.copy(videos = imdbVideos)
     }
 
     /** Numbers a long show's episodes across seasons, so S29 E8 can also read as episode 1000. */
