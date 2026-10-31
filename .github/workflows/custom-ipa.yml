@@ -48,6 +48,8 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: true
 
       - name: Cache Kotlin Native
         uses: actions/cache@v5
@@ -57,9 +59,14 @@ jobs:
           restore-keys: |
             konan-${{ runner.os }}-${{ runner.arch }}-
 
-      # Upstream reads private keys from local.properties; the fork has none, but the file must exist.
-      - name: Create empty local.properties
-        run: touch local.properties
+      # Only this step sees the keys. local.properties is ignored by git and stays on the runner.
+      - name: Create local.properties
+        env:
+          TRAKT_CLIENT_ID: ${{ secrets.TRAKT_CLIENT_ID }}
+          TRAKT_CLIENT_SECRET: ${{ secrets.TRAKT_CLIENT_SECRET }}
+        run: |
+          umask 077
+          printf 'TRAKT_CLIENT_ID=%s\nTRAKT_CLIENT_SECRET=%s\n' "$TRAKT_CLIENT_ID" "$TRAKT_CLIENT_SECRET" > local.properties
 
       - name: Prepare iOS dependencies
         run: ./scripts/prepare-ios-dependencies.sh
@@ -67,10 +74,20 @@ jobs:
       - name: Build unsigned IPA
         run: ./scripts/build-ios-ipa.sh
 
-      - name: Upload IPA
+      - name: Encrypt IPA
+        env:
+          NUVIO_IPA_KEY: ${{ secrets.NUVIO_IPA_KEY }}
+        run: |
+          test -n "$NUVIO_IPA_KEY"
+          for ipa in build/ios-ipa/*.ipa; do
+            openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -md sha256 -salt -pass env:NUVIO_IPA_KEY -in "$ipa" -out "$ipa.enc"
+            rm "$ipa"
+          done
+
+      - name: Upload encrypted IPA
         uses: actions/upload-artifact@v7
         with:
           name: nuvio-custom-ipa-${{ matrix.runner }}
-          path: build/ios-ipa/*.ipa
+          path: build/ios-ipa/*.ipa.enc
           if-no-files-found: error
           retention-days: 30
