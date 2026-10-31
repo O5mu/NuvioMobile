@@ -273,6 +273,11 @@ object MetaDetailsRepository {
     private const val METADATA_PROVIDER_READY_TIMEOUT_MS = 10_000L
     private const val TMDB_ENRICH_TIMEOUT_MS = 5_000L
     private const val MDBLIST_ENRICH_TIMEOUT_MS = 5_000L
+    private const val IMDB_SEASONS_TIMEOUT_MS = 3_000L
+    private const val ABSOLUTE_NUMBERING_MIN_EPISODES = 100
+    private const val CINEMETA_MANIFEST_URL = "https://v3-cinemeta.strem.io/manifest.json"
+    private val imdbIdPattern = Regex("^tt\\d+")
+    private val imdbSeasonVideosById = mutableMapOf<String, List<MetaVideo>>()
 
     private suspend fun tryFetchMeta(
         manifest: AddonManifest,
@@ -292,7 +297,7 @@ object MetaDetailsRepository {
             log.d { "Fetching meta from: $url" }
             val payload = fetchAddonResponseText(url)
             log.d { "Raw payload length=${payload.length}, first 500 chars: ${payload.take(500)}" }
-            val result = MetaDetailsParser.parse(payload)
+            val result = withAbsoluteEpisodes(withImdbSeasons(MetaDetailsParser.parse(payload)))
             val tmdbEnriched = withTimeoutOrNull(TMDB_ENRICH_TIMEOUT_MS) {
                 TmdbMetadataService.enrichMeta(
                     meta = result,
@@ -321,6 +326,62 @@ object MetaDetailsRepository {
         } catch (e: Throwable) {
             if (e is CancellationException) throw e
             log.e(e) { "Failed to fetch/parse meta from $url (manifest=${manifest.transportUrl})" }
+            null
+        }
+    }
+
+    /**
+     * Some metadata addons list long anime as one season (Detective Conan as S1 E1000), but
+     * stream addons look episodes up by IMDb season, so tt0131179:1:1000 finds nothing while
+     * tt0131179:29:8 finds the same episode. Such shows take their episode list from Cinemeta.
+     */
+    private suspend fun withImdbSeasons(meta: MetaDetails): MetaDetails {
+        if (meta.type.equals("movie", ignoreCase = true)) return meta
+        if (meta.videos.any { it.streams.isNotEmpty() }) return meta
+        val mainEpisodes = meta.videos.filter { normalizeSeasonNumber(it.season) > SPECIALS_SEASON_NUMBER }
+        if (mainEpisodes.size < ABSOLUTE_NUMBERING_MIN_EPISODES) return meta
+        if (mainEpisodes.distinctBy { it.season }.size > 1) return meta
+
+        val imdbId = listOfNotNull(meta.imdbId, meta.id, meta.videos.first().id)
+            .firstNotNullOfOrNull { imdbIdPattern.find(it)?.value }
+            ?: return meta
+        val imdbVideos = fetchImdbSeasonVideos(imdbId) ?: return meta
+        val imdbMainEpisodes = imdbVideos.filter { normalizeSeasonNumber(it.season) > SPECIALS_SEASON_NUMBER }
+        // The IMDb id may cover a different scope than this entry, so the lists must roughly agree.
+        val isSameShow = imdbMainEpisodes.distinctBy { it.season }.size > 1 &&
+            imdbMainEpisodes.size * 2 >= mainEpisodes.size
+        return if (isSameShow) meta.copy(videos = imdbVideos) else meta
+    }
+
+    /** Numbers a long show's episodes across seasons, so S29 E8 can also read as episode 1000. */
+    private fun withAbsoluteEpisodes(meta: MetaDetails): MetaDetails {
+        val mainEpisodes = meta.videos
+            .filter { normalizeSeasonNumber(it.season) > SPECIALS_SEASON_NUMBER && it.episode != null }
+            .sortedWith(metaVideoSeasonEpisodeComparator)
+        if (mainEpisodes.size < ABSOLUTE_NUMBERING_MIN_EPISODES) return meta
+        if (mainEpisodes.distinctBy { it.season }.size < 2) return meta
+
+        val absoluteById = mainEpisodes.withIndex().associate { (index, video) -> video.id to index + 1 }
+        return meta.copy(
+            videos = meta.videos.map { video -> video.copy(absoluteEpisode = absoluteById[video.id]) },
+        )
+    }
+
+    private suspend fun fetchImdbSeasonVideos(imdbId: String): List<MetaVideo>? {
+        imdbSeasonVideosById[imdbId]?.let { return it }
+        val url = buildAddonResourceUrl(
+            manifestUrl = CINEMETA_MANIFEST_URL,
+            resource = "meta",
+            type = "series",
+            id = imdbId,
+        )
+        return try {
+            withTimeoutOrNull(IMDB_SEASONS_TIMEOUT_MS) {
+                MetaDetailsParser.parse(fetchAddonResponseText(url)).videos
+            }?.also { imdbSeasonVideosById[imdbId] = it }
+        } catch (e: Throwable) {
+            if (e is CancellationException) throw e
+            log.w(e) { "Could not load IMDb seasons for $imdbId" }
             null
         }
     }

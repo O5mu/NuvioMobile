@@ -96,6 +96,7 @@ data class MetaVideo(
     val seasonPoster: String? = null,
     val season: Int? = null,
     val episode: Int? = null,
+    val absoluteEpisode: Int? = null,
     val overview: String? = null,
     val runtime: Int? = null,
     val rating: Double? = null,
