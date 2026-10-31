@@ -126,6 +126,21 @@ object MetaDetailsRepository {
 
         scope.launch {
             val metaLookupId = resolveMetaLookupId(itemId = id, itemType = type)
+            val cinemetaMeta = withContext(Dispatchers.Default) {
+                tryFetchCinemetaMeta(type, metaLookupId)
+            }
+            if (cinemetaMeta != null) {
+                publishLoadedMeta(
+                    requestKey = requestKey,
+                    meta = cinemetaMeta,
+                    fallbackItemId = metaLookupId,
+                    fallbackItemType = type,
+                    mdbListSettings = mdbListSettings,
+                    metaScreenSettingsFingerprint = metaScreenSettingsFingerprint,
+                )
+                return@launch
+            }
+
             val manifests = findReadyMetaManifests(type = type, id = metaLookupId)
 
             if (manifests.isEmpty()) {
@@ -152,7 +167,7 @@ object MetaDetailsRepository {
 
             for (manifest in manifests) {
                 val result = withContext(Dispatchers.Default) {
-                    tryFetchMeta(manifest, type, metaLookupId, includeMdbList = false)
+                    tryFetchMeta(manifest.transportUrl, type, metaLookupId, includeMdbList = false)
                 }
                 if (result != null) {
                     publishLoadedMeta(
@@ -217,11 +232,18 @@ object MetaDetailsRepository {
         }
 
         val metaLookupId = resolveMetaLookupId(itemId = id, itemType = type)
+        tryFetchCinemetaMeta(type, metaLookupId)?.let { result ->
+            if (cacheResult) {
+                cachedMetaByRequestKey[requestKey] = CachedMetaEntry(baseMeta = result)
+            }
+            return result
+        }
+
         val manifests = findReadyMetaManifests(type = type, id = metaLookupId)
 
         for (manifest in manifests) {
             val result = withTimeoutOrNull(FETCH_TIMEOUT_MS) {
-                tryFetchMeta(manifest, type, metaLookupId, includeMdbList = false)
+                tryFetchMeta(manifest.transportUrl, type, metaLookupId, includeMdbList = false)
             }
             if (result != null) {
                 if (cacheResult) {
@@ -270,24 +292,32 @@ object MetaDetailsRepository {
     }
 
     private const val FETCH_TIMEOUT_MS = 5_000L
+    private const val CINEMETA_TIMEOUT_MS = 10_000L
     private const val METADATA_PROVIDER_READY_TIMEOUT_MS = 10_000L
     private const val TMDB_ENRICH_TIMEOUT_MS = 5_000L
     private const val MDBLIST_ENRICH_TIMEOUT_MS = 5_000L
-    private const val IMDB_SEASONS_TIMEOUT_MS = 3_000L
-    private const val ABSOLUTE_NUMBERING_MIN_EPISODES = 100
     private const val CINEMETA_MANIFEST_URL = "https://v3-cinemeta.strem.io/manifest.json"
-    private val imdbIdPattern = Regex("^tt\\d+")
-    private val animeIdPrefixes = listOf("kitsu:", "mal:", "anilist:", "anidb:")
-    private val imdbSeasonVideosById = mutableMapOf<String, List<MetaVideo>>()
+    private val CINEMETA_TYPES = setOf("movie", "series")
+
+    /**
+     * Same order as Harbor: Cinemeta answers first, and addons only get asked when it has no
+     * poster for the title. It only knows IMDb ids, so anime ids go straight to their addon.
+     */
+    private suspend fun tryFetchCinemetaMeta(type: String, id: String): MetaDetails? {
+        if (!id.startsWith("tt") || type !in CINEMETA_TYPES) return null
+        return withTimeoutOrNull(CINEMETA_TIMEOUT_MS) {
+            tryFetchMeta(CINEMETA_MANIFEST_URL, type, id, includeMdbList = false)
+        }?.takeUnless { it.poster.isNullOrBlank() }
+    }
 
     private suspend fun tryFetchMeta(
-        manifest: AddonManifest,
+        manifestUrl: String,
         type: String,
         id: String,
         includeMdbList: Boolean,
     ): MetaDetails? {
         val url = buildAddonResourceUrl(
-            manifestUrl = manifest.transportUrl,
+            manifestUrl = manifestUrl,
             resource = "meta",
             type = type,
             id = id,
@@ -298,7 +328,7 @@ object MetaDetailsRepository {
             log.d { "Fetching meta from: $url" }
             val payload = fetchAddonResponseText(url)
             log.d { "Raw payload length=${payload.length}, first 500 chars: ${payload.take(500)}" }
-            val result = withAbsoluteEpisodes(withImdbSeasons(MetaDetailsParser.parse(payload)))
+            val result = withAbsoluteEpisodes(MetaDetailsParser.parse(payload))
             val tmdbEnriched = withTimeoutOrNull(TMDB_ENRICH_TIMEOUT_MS) {
                 TmdbMetadataService.enrichMeta(
                     meta = result,
@@ -326,61 +356,23 @@ object MetaDetailsRepository {
             enriched
         } catch (e: Throwable) {
             if (e is CancellationException) throw e
-            log.e(e) { "Failed to fetch/parse meta from $url (manifest=${manifest.transportUrl})" }
+            log.e(e) { "Failed to fetch/parse meta from $url (manifest=$manifestUrl)" }
             null
         }
     }
 
-    /**
-     * Some metadata addons list long anime as one season (Detective Conan as S1 E1000), but
-     * stream addons look episodes up by IMDb season, so tt0131179:1:1000 finds nothing while
-     * tt0131179:29:8 finds the same episode. So any show with an IMDb id takes its episode list
-     * from Cinemeta, and the addon's list is only used when Cinemeta has none. Anime ids stay
-     * with their addon, because stream addons look those up by their own numbering.
-     */
-    private suspend fun withImdbSeasons(meta: MetaDetails): MetaDetails {
-        if (meta.type.equals("movie", ignoreCase = true)) return meta
-        if (meta.videos.any { it.streams.isNotEmpty() }) return meta
-        if (animeIdPrefixes.any { meta.id.startsWith(it) }) return meta
-
-        val imdbId = listOfNotNull(meta.imdbId, meta.id, meta.videos.firstOrNull()?.id)
-            .firstNotNullOfOrNull { imdbIdPattern.find(it)?.value }
-            ?: return meta
-        val imdbVideos = fetchImdbSeasonVideos(imdbId)?.takeIf { it.isNotEmpty() } ?: return meta
-        return meta.copy(videos = imdbVideos)
-    }
-
-    /** Numbers a long show's episodes across seasons, so S29 E8 can also read as episode 1000. */
+    /** Numbers a show's episodes across seasons, so S29 E8 can also read as episode 1000. */
     private fun withAbsoluteEpisodes(meta: MetaDetails): MetaDetails {
-        val mainEpisodes = meta.videos
+        val absoluteById = meta.videos
             .filter { normalizeSeasonNumber(it.season) > SPECIALS_SEASON_NUMBER && it.episode != null }
             .sortedWith(metaVideoSeasonEpisodeComparator)
-        if (mainEpisodes.size < ABSOLUTE_NUMBERING_MIN_EPISODES) return meta
-        if (mainEpisodes.distinctBy { it.season }.size < 2) return meta
-
-        val absoluteById = mainEpisodes.withIndex().associate { (index, video) -> video.id to index + 1 }
+            .withIndex()
+            .associate { (index, video) -> video.id to index + 1 }
         return meta.copy(
-            videos = meta.videos.map { video -> video.copy(absoluteEpisode = absoluteById[video.id]) },
+            videos = meta.videos.map { video ->
+                video.copy(absoluteEpisode = absoluteById[video.id]?.takeIf { it != video.episode })
+            },
         )
-    }
-
-    private suspend fun fetchImdbSeasonVideos(imdbId: String): List<MetaVideo>? {
-        imdbSeasonVideosById[imdbId]?.let { return it }
-        val url = buildAddonResourceUrl(
-            manifestUrl = CINEMETA_MANIFEST_URL,
-            resource = "meta",
-            type = "series",
-            id = imdbId,
-        )
-        return try {
-            withTimeoutOrNull(IMDB_SEASONS_TIMEOUT_MS) {
-                MetaDetailsParser.parse(fetchAddonResponseText(url)).videos
-            }?.also { imdbSeasonVideosById[imdbId] = it }
-        } catch (e: Throwable) {
-            if (e is CancellationException) throw e
-            log.w(e) { "Could not load IMDb seasons for $imdbId" }
-            null
-        }
     }
 
     private suspend fun findReadyMetaManifests(type: String, id: String): List<AddonManifest> {
