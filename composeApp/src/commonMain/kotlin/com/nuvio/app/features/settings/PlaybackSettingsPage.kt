@@ -74,8 +74,10 @@ import com.nuvio.app.features.player.IosTargetTransfer
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.player.STREAM_AUTO_PLAY_TIMEOUT_VALUES
 import com.nuvio.app.features.player.availableSubtitleFontOptions
+import com.nuvio.app.features.player.removeImportedSubtitleFont
 import com.nuvio.app.features.player.rememberSubtitleFontImporter
 import com.nuvio.app.features.player.SubtitleBackgroundColorSwatches
+import com.nuvio.app.features.player.SubtitleFontOption
 import com.nuvio.app.features.player.SubtitleColorSwatches
 import com.nuvio.app.features.player.SubtitleLanguageOption
 import com.nuvio.app.features.player.formatPlaybackSpeedLabel
@@ -736,6 +738,23 @@ private fun PlaybackSettingsSection(
                         isTablet = isTablet,
                         onClick = importFont,
                     )
+                    val currentFont = fontOptions[currentFontIndex]
+                    if (currentFont.id.startsWith(SubtitleFontOption.IMPORTED_PREFIX)) {
+                        SettingsGroupDivider(isTablet = isTablet)
+                        SettingsNavigationRow(
+                            title = stringResource(Res.string.compose_player_subtitle_remove_font),
+                            description = currentFont.label,
+                            enabled = subtitleRenderingEnabled,
+                            isTablet = isTablet,
+                            onClick = {
+                                removeImportedSubtitleFont(currentFont.id)
+                                fontListVersion++
+                                PlayerSettingsRepository.setSubtitleStyle(
+                                    subtitleStyle.copy(fontFamily = SubtitleFontOption.DEFAULT_ID),
+                                )
+                            },
+                        )
+                    }
                     SettingsGroupDivider(isTablet = isTablet)
                     SettingsSwitchRow(
                         title = stringResource(Res.string.compose_player_shadow),

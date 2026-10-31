@@ -448,6 +448,7 @@
     <string name="compose_player_subtitle_font">Font</string>
     <string name="compose_player_subtitle_import_font">Import font</string>
     <string name="compose_player_subtitle_import_font_hint">Pick a .ttf or .otf font from Files</string>
+    <string name="compose_player_subtitle_remove_font">Remove font</string>
     <string name="compose_player_shadow">Shadow</string>
     <string name="compose_player_shadow_color">Shadow Color</string>
     <string name="compose_player_shadow_opacity">Shadow Opacity</string>

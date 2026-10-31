@@ -56,6 +56,15 @@ private fun importSubtitleFont(source: NSURL): SubtitleFontOption? {
     return importedFontOption(fileName)
 }
 
+@OptIn(ExperimentalForeignApi::class)
+internal actual fun removeImportedSubtitleFont(id: String) {
+    if (!id.startsWith(SubtitleFontOption.IMPORTED_PREFIX)) return
+    val fileName = id.removePrefix(SubtitleFontOption.IMPORTED_PREFIX)
+    if (fileName.isEmpty() || '/' in fileName) return
+    val target = importedSubtitleFontsDirectory()?.URLByAppendingPathComponent(fileName) ?: return
+    NSFileManager.defaultManager.removeItemAtURL(target, error = null)
+}
+
 private class SubtitleFontPickerDelegate(
     private val onResult: (SubtitleFontOption?) -> Unit,
 ) : NSObject(), UIDocumentPickerDelegateProtocol {

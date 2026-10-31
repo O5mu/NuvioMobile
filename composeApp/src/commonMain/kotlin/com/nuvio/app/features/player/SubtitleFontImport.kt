@@ -12,5 +12,8 @@ internal expect fun importedSubtitleFontOptions(): List<SubtitleFontOption>
 @Composable
 internal expect fun rememberSubtitleFontImporter(onImported: (SubtitleFontOption?) -> Unit): () -> Unit
 
+/** Deletes an imported font's file. Ids of other fonts are ignored. */
+internal expect fun removeImportedSubtitleFont(id: String)
+
 internal fun availableSubtitleFontOptions(): List<SubtitleFontOption> =
     SubtitleFontOption.all + importedSubtitleFontOptions()

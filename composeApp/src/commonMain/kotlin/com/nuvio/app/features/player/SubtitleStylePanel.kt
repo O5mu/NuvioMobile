@@ -67,6 +67,7 @@ import nuvio.composeapp.generated.resources.compose_player_subtitle_delay
 import nuvio.composeapp.generated.resources.compose_player_subtitle_font
 import nuvio.composeapp.generated.resources.compose_player_subtitle_import_font
 import nuvio.composeapp.generated.resources.compose_player_subtitle_import_font_hint
+import nuvio.composeapp.generated.resources.compose_player_subtitle_remove_font
 import nuvio.composeapp.generated.resources.compose_player_text_opacity
 import org.jetbrains.compose.resources.stringResource
 import kotlin.math.abs
@@ -172,6 +173,17 @@ fun SubtitleStylePanel(
                         selected = false,
                         onClick = importFont,
                     )
+                    if (selectedFontId.startsWith(SubtitleFontOption.IMPORTED_PREFIX)) {
+                        SubtitleOptionChip(
+                            label = "\u2715 " + stringResource(Res.string.compose_player_subtitle_remove_font),
+                            selected = false,
+                            onClick = {
+                                removeImportedSubtitleFont(selectedFontId)
+                                fontListVersion++
+                                onStyleChanged(style.copy(fontFamily = SubtitleFontOption.DEFAULT_ID))
+                            },
+                        )
+                    }
                 }
                 SubtitleHelperText(stringResource(Res.string.compose_player_subtitle_import_font_hint))
             }

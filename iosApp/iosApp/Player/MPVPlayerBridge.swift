@@ -510,20 +510,15 @@ final class MPVPlayerViewController: UIViewController {
 
         let scale = view.window?.screen.nativeScale ?? UIScreen.main.nativeScale
         var layerSize = bounds.size
-        var drawnSize = bounds.size
         if hasFillSizedLayer {
             let widthRatio = bounds.width / videoDisplaySize.width
             let heightRatio = bounds.height / videoDisplaySize.height
             let cover = max(widthRatio, heightRatio)
-            let fit = min(widthRatio, heightRatio)
             layerSize = CGSize(width: videoDisplaySize.width * cover, height: videoDisplaySize.height * cover)
-            drawnSize = drawableIsFill
-                ? layerSize
-                : CGSize(width: videoDisplaySize.width * fit, height: videoDisplaySize.height * fit)
         }
         let drawableSize = CGSize(
-            width: (drawnSize.width * scale).rounded(.toNearestOrAwayFromZero),
-            height: (drawnSize.height * scale).rounded(.toNearestOrAwayFromZero)
+            width: (layerSize.width * scale).rounded(.toNearestOrAwayFromZero),
+            height: (layerSize.height * scale).rounded(.toNearestOrAwayFromZero)
         )
 
         CATransaction.begin()
@@ -947,7 +942,11 @@ final class MPVPlayerViewController: UIViewController {
         setFlag("mute", muted)
     }
 
-    private static let resizeSettleDuration = 0.28
+    private static let resizeSettleDuration = 0.45
+    /// Under 1 overshoots: 0.6 passes the target by about a tenth of the distance travelled.
+    private static let resizeSpringDamping = 0.6
+    private static let resizeSpringFrequency = 16.5
+    private static let resizeSpringFrameRate = 120.0
     private static let resizeAnimationKey = "nuvioResize"
     /// Picture scale being shown, relative to fit.
     private var displayedScale: CGFloat = 1
@@ -956,9 +955,6 @@ final class MPVPlayerViewController: UIViewController {
     /// The layer is the size of the filled picture and fit is a shrunken view of it, so the
     /// picture changes size without mpv. Needs subtitles outside mpv, or they would be cropped.
     private var hasFillSizedLayer = false
-    /// Whether mpv draws at the resolution of the filled picture. Only matters on a fill-sized
-    /// layer, where fit needs fewer pixels.
-    private var drawableIsFill = false
     /// What mpv has drawn when its own subtitles are in use: fit, or cropped to fill by panscan.
     private var panscanBaseIsFill = false
     private var panscanSwapPending = false
@@ -1001,19 +997,14 @@ final class MPVPlayerViewController: UIViewController {
             panscanSwapID &+= 1
             panscanSwapPending = false
             panscanBaseIsFill = fill
-            drawableIsFill = fill
             setPanscan(fill ? 1 : 0)
             layoutMetalLayer()
             return
         }
 
         if hasFillSizedLayer {
-            animateResizeScale(to: fill ? fillScale : 1) { [weak self] in
-                guard let self, self.resizeGeneration == generation else { return }
-                // Same picture on screen, so this only changes how sharp it is.
-                self.drawableIsFill = fill
-                self.layoutMetalLayer()
-            }
+            // mpv keeps drawing the same frames, so nothing changes for it.
+            animateResizeScale(to: fill ? fillScale : 1) {}
             return
         }
 
@@ -1069,7 +1060,6 @@ final class MPVPlayerViewController: UIViewController {
             metalLayer.removeAnimation(forKey: Self.resizeAnimationKey)
             hasFillSizedLayer = wantsFillSizedLayer
             panscanBaseIsFill = !wantsFillSizedLayer && resizeTargetIsFill
-            drawableIsFill = resizeTargetIsFill
             setPanscan(panscanBaseIsFill ? 1 : 0)
         }
         layoutMetalLayer()
@@ -1096,13 +1086,27 @@ final class MPVPlayerViewController: UIViewController {
         CATransaction.commit()
     }
 
+    /// How far a damped spring released from rest has moved towards its target, as a fraction.
+    private static func resizeSpringProgress(at time: Double) -> Double {
+        let decay = resizeSpringDamping * resizeSpringFrequency
+        let ringing = resizeSpringFrequency * (1 - resizeSpringDamping * resizeSpringDamping).squareRoot()
+        return 1 - exp(-decay * time) * (cos(ringing * time) + decay / ringing * sin(ringing * time))
+    }
+
     private func animateResizeScale(to scale: CGFloat, completion: @escaping () -> Void) {
         let target = resizeTransform(scale: scale / layerBaseScale)
-        let animation = CABasicAnimation(keyPath: "transform")
-        animation.fromValue = NSValue(caTransform3D: metalLayer.transform)
-        animation.toValue = NSValue(caTransform3D: target)
+        let start = metalLayer.presentation()?.transform ?? metalLayer.transform
+        let startScale = start.m11
+        let targetScale = target.m11
+        let frames = Int((Self.resizeSettleDuration * Self.resizeSpringFrameRate).rounded())
+        let animation = CAKeyframeAnimation(keyPath: "transform")
+        // Sampled, so the overshoot does not depend on how a spring would interpolate matrices.
+        animation.values = (0...frames).map { frame in
+            let progress = frame == frames ? 1 : Self.resizeSpringProgress(at: Double(frame) / Self.resizeSpringFrameRate)
+            let frameScale = startScale + (targetScale - startScale) * CGFloat(progress)
+            return NSValue(caTransform3D: resizeTransform(scale: frameScale))
+        }
         animation.duration = Self.resizeSettleDuration
-        animation.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.25, 1)
         if #available(iOS 15.0, *) {
             animation.preferredFrameRateRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
         }
