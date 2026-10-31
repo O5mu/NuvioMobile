@@ -1136,6 +1136,7 @@
     <string name="settings_metadata_prefer_addon">تفضيل إضافات البيانات</string>
     <string name="settings_metadata_prefer_addon_description">سؤال الإضافات المثبتة قبل Cinemeta.</string>
     <string name="settings_trakt_approval_redirect">بعد الموافقة، ستتم إعادتك تلقائيًا.</string>
+    <string name="settings_trakt_approval_device">أدخل هذا الرمز في صفحة Trakt. تم نسخه، وستتحدث هذه الشاشة بعد الموافقة.</string>
     <string name="settings_trakt_authentication">المصادقة</string>
     <string name="settings_trakt_comments">التعليقات</string>
     <string name="settings_trakt_comments_description">إظهار مراجعات Trakt في صفحات التفاصيل</string>
@@ -1584,6 +1585,7 @@
     <string name="stream_default_name">مصدر بث</string>
     <string name="source_embedded">مدمج</string>
     <string name="trakt_authorization_denied">تم رفض التفويض</string>
+    <string name="trakt_device_code_expired">انتهت صلاحية رمز Trakt. أعد الربط للحصول على رمز جديد.</string>
     <string name="trakt_authorization_expired_reconnect">لم يعد تفويض Trakt صالحًا. أعد ربط حساب Trakt.</string>
     <string name="trakt_complete_sign_in_browser">أكمل تسجيل الدخول إلى Trakt في المتصفح</string>
     <string name="trakt_connected">تم الاتصال بـ Trakt</string>

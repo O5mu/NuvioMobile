@@ -1314,6 +1314,7 @@
     <string name="settings_metadata_prefer_addon">Prefer metadata addons</string>
     <string name="settings_metadata_prefer_addon_description">Ask your installed addons before Cinemeta.</string>
     <string name="settings_trakt_approval_redirect">After approval, you will be redirected back automatically.</string>
+    <string name="settings_trakt_approval_device">Enter this code on Trakt's page. It is already copied, and this screen updates once you approve.</string>
     <string name="settings_trakt_authentication">AUTHENTICATION</string>
     <string name="settings_trakt_comments">Comments</string>
     <string name="settings_trakt_comments_description">Show Trakt reviews on metadata pages</string>
@@ -1817,6 +1818,7 @@
     <string name="stream_default_name">Stream</string>
     <string name="source_embedded">Embedded</string>
     <string name="trakt_authorization_denied">Authorization denied</string>
+    <string name="trakt_device_code_expired">The Trakt code expired. Connect again to get a new one.</string>
     <string name="trakt_authorization_expired_reconnect">Your Trakt authorization is no longer valid. Reconnect your Trakt account.</string>
     <string name="trakt_complete_sign_in_browser">Complete Trakt sign in in your browser</string>
     <string name="trakt_connected">Connected to Trakt</string>

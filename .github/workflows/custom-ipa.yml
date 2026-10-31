@@ -66,7 +66,7 @@ jobs:
           TRAKT_CLIENT_SECRET: ${{ secrets.TRAKT_CLIENT_SECRET }}
         run: |
           umask 077
-          printf 'TRAKT_CLIENT_ID=%s\nTRAKT_CLIENT_SECRET=%s\n' "$TRAKT_CLIENT_ID" "$TRAKT_CLIENT_SECRET" > local.properties
+          printf 'TRAKT_CLIENT_ID=%s\nTRAKT_CLIENT_SECRET=%s\nTRAKT_REDIRECT_URI=http://localhost\n' "$TRAKT_CLIENT_ID" "$TRAKT_CLIENT_SECRET" > local.properties
 
       - name: Prepare iOS dependencies
         run: ./scripts/prepare-ios-dependencies.sh

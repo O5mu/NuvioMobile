@@ -13,6 +13,8 @@ data class TraktAuthState(
     val userSlug: String? = null,
     val pendingAuthorizationState: String? = null,
     val pendingAuthorizationStartedAtMillis: Long? = null,
+    val pendingUserCode: String? = null,
+    val pendingVerificationUrl: String? = null,
 ) {
     val isAuthenticated: Boolean
         get() = !accessToken.isNullOrBlank() && !refreshToken.isNullOrBlank()
@@ -29,6 +31,7 @@ data class TraktAuthUiState(
     val credentialsConfigured: Boolean = true,
     val isLoading: Boolean = false,
     val username: String? = null,
+    val userCode: String? = null,
     val tokenExpiresAtMillis: Long? = null,
     val pendingAuthorizationStartedAtMillis: Long? = null,
     val statusMessage: String? = null,

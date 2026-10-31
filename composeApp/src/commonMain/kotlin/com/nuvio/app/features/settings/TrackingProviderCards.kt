@@ -1,5 +1,7 @@
 package com.nuvio.app.features.settings
 
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -216,6 +218,10 @@ private fun TraktProviderCard(
     uiState: TraktAuthUiState,
     modifier: Modifier,
 ) {
+    val clipboard = LocalClipboardManager.current
+    fun copyUserCode() {
+        TraktAuthRepository.uiState.value.userCode?.let { clipboard.setText(AnnotatedString(it)) }
+    }
     TrackingProviderCard(
         brand = TrackingBrand.TRAKT,
         mode = uiState.mode.toTrackingConnectionCardMode(),
@@ -228,7 +234,8 @@ private fun TraktProviderCard(
         connectedDescription = stringResource(Res.string.settings_trakt_save_actions_description),
         signInDescription = stringResource(Res.string.settings_trakt_sign_in_description),
         finishSignInLabel = stringResource(Res.string.settings_trakt_finish_sign_in),
-        approvalDescription = stringResource(Res.string.settings_trakt_approval_redirect),
+        approvalDescription = stringResource(Res.string.settings_trakt_approval_device),
+        authorizationCode = uiState.userCode,
         connectLabel = stringResource(Res.string.settings_trakt_connect),
         openLoginLabel = stringResource(Res.string.settings_trakt_open_login),
         disconnectLabel = stringResource(Res.string.settings_trakt_disconnect),
@@ -237,10 +244,12 @@ private fun TraktProviderCard(
             uiState.mode == TraktConnectionMode.CONNECTED
         },
         errorMessage = uiState.errorMessage,
-        onConnectRequested = TraktAuthRepository::onConnectRequested,
+        onConnectRequested = {
+            TraktAuthRepository.onConnectRequested().also { copyUserCode() }
+        },
         onResumeAuthorization = {
-            TraktAuthRepository.pendingAuthorizationUrl()
-                ?: TraktAuthRepository.onConnectRequested()
+            (TraktAuthRepository.pendingAuthorizationUrl() ?: TraktAuthRepository.onConnectRequested())
+                .also { copyUserCode() }
         },
         onCancelAuthorization = TraktAuthRepository::onCancelAuthorization,
         onDisconnect = TraktAuthRepository::onDisconnectRequested,
