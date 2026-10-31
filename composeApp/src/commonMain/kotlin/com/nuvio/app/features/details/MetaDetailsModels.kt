@@ -100,6 +100,7 @@ data class MetaVideo(
     val imdbSeason: Int? = null,
     val imdbEpisode: Int? = null,
     val isFiller: Boolean = false,
+    val animeEpisodeLabel: String? = null,
     val overview: String? = null,
     val runtime: Int? = null,
     val rating: Double? = null,

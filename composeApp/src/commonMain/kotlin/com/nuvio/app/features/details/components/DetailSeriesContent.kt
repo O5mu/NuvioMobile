@@ -1579,15 +1579,16 @@ private fun Int.label(): String =
 
 private fun MetaVideo.episodeBadge(): String =
     when {
+        animeEpisodeLabel != null -> animeEpisodeLabel + fillerBadgeSuffix()
         episode != null || season != null ->
-            localizedSeasonEpisodeCode(
-                seasonNumber = imdbSeason ?: season,
-                episodeNumber = imdbEpisode ?: episode,
-            ).orEmpty() +
+            localizedSeasonEpisodeCode(seasonNumber = season, episodeNumber = episode).orEmpty() +
                 absoluteEpisode?.let { " • #$it" }.orEmpty() +
-                if (isFiller) " • " + runBlocking { getString(Res.string.details_episode_filler) } else ""
+                fillerBadgeSuffix()
         else -> runBlocking { getString(Res.string.details_episode_badge_file) }
     }
+
+private fun MetaVideo.fillerBadgeSuffix(): String =
+    if (isFiller) " • " + runBlocking { getString(Res.string.details_episode_filler) } else ""
 
 private fun MetaVideo.seasonEpisodeKey(): Pair<Int, Int>? {
     val seasonNumber = season ?: return null

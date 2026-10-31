@@ -359,7 +359,7 @@ object MetaDetailsRepository {
         return meta.copy(
             videos = meta.videos.map { video ->
                 val absolute = video.absoluteEpisode ?: absoluteById[video.id]
-                video.copy(absoluteEpisode = absolute?.takeIf { it != (video.imdbEpisode ?: video.episode) })
+                video.copy(absoluteEpisode = absolute?.takeIf { it != video.episode })
             },
         )
     }

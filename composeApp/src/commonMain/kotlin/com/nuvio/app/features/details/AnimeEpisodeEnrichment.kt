@@ -56,12 +56,26 @@ internal object AnimeEpisodeEnrichment {
         val mapping = fetchMapping("${scheme}_id=$id")
         val videos = mapping?.let { mergeEpisodes(meta.videos, it, language) } ?: meta.videos
         val fillers = fetchFillers(meta, mapping)
+        val showSeason = videos.mapTo(mutableSetOf()) { it.imdbSeason ?: it.season ?: 1 }.size > 1
         return meta.copy(
             videos = videos.map { video ->
                 val number = video.absoluteEpisode ?: video.episode
-                if (number != null && number in fillers) video.copy(isFiller = true) else video
+                video.copy(
+                    isFiller = video.isFiller || (number != null && number in fillers),
+                    animeEpisodeLabel = episodeLabel(video, showSeason),
+                )
             },
         )
+    }
+
+    /** Harbor's row: "S29 · E1000", or "E1 · Abs E26" when every episode shares one season. */
+    private fun episodeLabel(video: MetaVideo, showSeason: Boolean): String? {
+        val number = video.episode ?: return null
+        val code = if (showSeason) "S${video.imdbSeason ?: video.season ?: 1} · E$number" else "E$number"
+        return video.absoluteEpisode
+            ?.takeIf { it != number }
+            ?.let { "$code · Abs E$it" }
+            ?: code
     }
 
     private suspend fun fetchMapping(query: String): JsonObject? {
